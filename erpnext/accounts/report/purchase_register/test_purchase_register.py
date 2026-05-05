@@ -2,8 +2,12 @@
 # MIT License. See license.txt
 
 import frappe
-from frappe.utils import add_months, today
+from frappe.model.meta import get_field_precision
+from frappe.utils import add_months, flt, today
 
+from erpnext.accounts.doctype.purchase_invoice.test_purchase_invoice import (
+	make_purchase_invoice as create_purchase_invoice,
+)
 from erpnext.accounts.report.purchase_register.purchase_register import execute
 from erpnext.stock.doctype.purchase_receipt.test_purchase_receipt import make_purchase_receipt
 from erpnext.tests.utils import ERPNextTestSuite
@@ -66,6 +70,48 @@ class TestPurchaseRegister(ERPNextTestSuite):
 		self.assertEqual(first_row.voucher_no, pi.name)
 		self.assertEqual(first_row.total_tax, 100)
 		self.assertEqual(first_row.grand_total, 1100)
+
+	def test_purchase_register_converts_outstanding_amount_to_company_currency(self):
+		pi1 = create_purchase_invoice(
+			supplier="_Test Supplier USD",
+			currency="USD",
+			conversion_rate=80,
+			qty=1,
+			rate=100.236,
+			credit_to="_Test Payable USD - _TC",
+		)
+		pi2 = create_purchase_invoice(conversion_rate=1, qty=1, rate=200.456)
+		company = pi1.company
+
+		_, data, *_ = execute(frappe._dict({"company": company}))
+
+		company_currency = frappe.get_cached_value("Company", company, "default_currency")
+		outstanding_precision = (
+			get_field_precision(
+				frappe.get_meta("Purchase Invoice").get_field("outstanding_amount"),
+				currency=company_currency,
+			)
+			or 2
+		)
+
+		rows_by_voucher = {row.get("voucher_no"): row for row in data}
+		pi1_row = rows_by_voucher.get(pi1.name)
+		self.assertIsNotNone(pi1_row)
+
+		expected_value = flt(
+			pi1.outstanding_amount * (pi1.conversion_rate or 1),
+			outstanding_precision,
+		)
+		self.assertEqual(pi1_row.get("outstanding_amount"), expected_value)
+
+		pi2_row = rows_by_voucher.get(pi2.name)
+		self.assertIsNotNone(pi2_row)
+
+		expected_value = flt(
+			pi2.outstanding_amount * (pi2.conversion_rate or 1),
+			outstanding_precision,
+		)
+		self.assertEqual(pi2_row.get("outstanding_amount"), expected_value)
 
 	def test_purchase_register_ledger_view(self):
 		filters = frappe._dict(
