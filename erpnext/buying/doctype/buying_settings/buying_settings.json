@@ -18,6 +18,8 @@
   "column_break_sbwq",
   "pr_required",
   "project_update_frequency",
+  "section_break_vxuc",
+  "show_supplier_name_in_reports",
   "transaction_settings_section",
   "column_break_fcyl",
   "set_landed_cost_based_on_purchase_invoice_rate",
@@ -52,6 +54,12 @@
    "fieldtype": "Select",
    "label": "Supplier Naming By",
    "options": "Supplier Name\nNaming Series\nAuto Name"
+  },
+  {
+   "default": "0",
+   "fieldname": "show_supplier_name_in_reports",
+   "fieldtype": "Check",
+   "label": "Show Supplier Name in Reports"
   },
   {
    "fieldname": "supplier_group",
@@ -286,16 +294,19 @@
    "fieldname": "allow_negative_rates_for_items",
    "fieldtype": "Check",
    "label": "Allow Negative rates for Items"
+  },
+  {
+   "fieldname": "section_break_vxuc",
+   "fieldtype": "Section Break"
   }
  ],
  "grid_page_length": 50,
- "hide_toolbar": 0,
  "icon": "fa fa-cog",
  "idx": 1,
  "index_web_pages_for_search": 1,
  "issingle": 1,
  "links": [],
- "modified": "2026-04-15 16:07:35.484787",
+ "modified": "2026-05-05 13:11:05.878504",
  "modified_by": "Administrator",
  "module": "Buying",
  "name": "Buying Settings",
@@ -313,7 +324,6 @@
   {
    "create": 1,
    "email": 1,
-   "export": 1,
    "print": 1,
    "read": 1,
    "role": "Purchase Manager",

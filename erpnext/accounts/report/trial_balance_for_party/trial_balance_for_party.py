@@ -9,20 +9,20 @@ from frappe.utils import cint, flt
 
 from erpnext.accounts.report.general_ledger.general_ledger import get_accounts_with_children
 from erpnext.accounts.report.trial_balance.trial_balance import validate_filters
+from erpnext.accounts.report.utils import add_party_name_column, show_party_name
 
 
 def execute(filters=None):
 	validate_filters(filters)
 
-	show_party_name = is_party_name_visible(filters)
-
-	columns = get_columns(filters, show_party_name)
-	data = get_data(filters, show_party_name)
+	columns = get_columns(filters)
+	data = get_data(filters)
 
 	return columns, data
 
 
-def get_data(filters, show_party_name):
+def get_data(filters):
+	include_party_name = show_party_name(filters.get("party_type"))
 	if filters.get("party_type") in ("Customer", "Supplier", "Employee", "Member"):
 		party_name_field = "{}_name".format(frappe.scrub(filters.get("party_type")))
 	elif filters.get("party_type") == "Shareholder":
@@ -60,7 +60,7 @@ def get_data(filters, show_party_name):
 	)
 	for party in parties:
 		row = {"party": party.name}
-		if show_party_name:
+		if include_party_name:
 			row["party_name"] = party.get(party_name_field)
 
 		# opening
@@ -177,7 +177,7 @@ def toggle_debit_credit(debit, credit):
 	return debit, credit
 
 
-def get_columns(filters, show_party_name):
+def get_columns(filters):
 	columns = [
 		{
 			"fieldname": "party",
@@ -237,32 +237,6 @@ def get_columns(filters, show_party_name):
 		},
 	]
 
-	if show_party_name:
-		columns.insert(
-			1,
-			{
-				"fieldname": "party_name",
-				"label": _(filters.party_type) + " Name",
-				"fieldtype": "Data",
-				"width": 200,
-			},
-		)
+	add_party_name_column(columns, party_type=filters.party_type, index=1)
 
 	return columns
-
-
-def is_party_name_visible(filters):
-	show_party_name = False
-
-	if filters.get("party_type") in ["Customer", "Supplier"]:
-		if filters.get("party_type") == "Customer":
-			party_naming_by = frappe.get_single_value("Selling Settings", "cust_master_name")
-		else:
-			party_naming_by = frappe.db.get_single_value("Buying Settings", "supp_master_name")
-
-		if party_naming_by == "Naming Series":
-			show_party_name = True
-	else:
-		show_party_name = True
-
-	return show_party_name

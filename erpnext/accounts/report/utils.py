@@ -1,7 +1,8 @@
 import frappe
+from frappe import _
 from frappe.query_builder.custom import ConstantColumn
 from frappe.query_builder.functions import Sum
-from frappe.utils import flt, formatdate, get_datetime_str, get_table_name
+from frappe.utils import cint, flt, formatdate, get_datetime_str, get_table_name
 from pypika import Order
 
 from erpnext import get_company_currency, get_default_company
@@ -409,3 +410,108 @@ def get_opening_row(party_type, party, from_date, company):
 			& (gle.is_cancelled == 0)
 		)
 	).run(as_dict=True)
+
+
+def show_party_name(party_type=None):
+	if party_type == "Customer":
+		return bool(cint(frappe.db.get_single_value("Selling Settings", "show_customer_name_in_reports")))
+
+	if party_type == "Supplier":
+		return bool(cint(frappe.db.get_single_value("Buying Settings", "show_supplier_name_in_reports")))
+
+	# Employee, Member, Shareholder, or multi-party (None) — always show.
+	return True
+
+
+def get_party_name_column(party_type=None, fieldname="party_name"):
+	if show_party_name(party_type):
+		label = _("Party Name")
+		if party_type:
+			label = _(f"{party_type} Name")
+
+		return {
+			"label": label,
+			"fieldname": fieldname,
+			"fieldtype": "Data",
+			"width": 150,
+		}
+
+	return {}
+
+
+def add_party_name_column(
+	columns, party_type=None, fieldname="party_name", index=None, column_overrides=None
+):
+	party_name_column = get_party_name_column(party_type, fieldname)
+	if not party_name_column:
+		return columns
+
+	if column_overrides:
+		party_name_column.update(column_overrides)
+
+	if index is None:
+		columns.append(party_name_column)
+	else:
+		columns.insert(index, party_name_column)
+
+	return columns
+
+
+# Maps each party type to the DocType field that holds its human-readable name.
+PARTY_NAME_FIELD = {
+	"Customer": "customer_name",
+	"Supplier": "supplier_name",
+	"Employee": "employee_name",
+	"Member": "member_name",
+	"Shareholder": "title",
+}
+
+
+def get_party_name_map(parties_by_type=None):
+	if not parties_by_type:
+		return {}
+
+	party_map = {}
+	party_doctypes = {
+		party_type: (party_type, fieldname) for party_type, fieldname in PARTY_NAME_FIELD.items()
+	}
+
+	for party_type, (doctype, party_name_field) in party_doctypes.items():
+		party_names = tuple({p for p in parties_by_type.get(party_type, ()) if p})
+		if not party_names:
+			continue
+
+		records = frappe.get_all(
+			doctype,
+			filters={"name": ("in", party_names)},
+			fields=["name", party_name_field],
+			as_list=True,
+		)
+		party_map[party_type] = frappe._dict(records)
+
+	return party_map
+
+
+def enrich_with_party_names(entries, party_type=None):
+	"""Populate `party_name` on each entry dict/object from master if show_party_name is enabled."""
+	if not show_party_name(party_type):
+		return
+
+	parties_by_type = {}
+	for entry in entries:
+		entry_party_type = entry.get("party_type")
+		party = entry.get("party")
+		if entry_party_type and party:
+			parties_by_type.setdefault(entry_party_type, set()).add(party)
+
+	if not parties_by_type:
+		return
+
+	party_name_map = get_party_name_map(parties_by_type)
+
+	for entry in entries:
+		entry_party_type = entry.get("party_type")
+		party = entry.get("party")
+		if entry_party_type and party:
+			party_name = party_name_map.get(entry_party_type, {}).get(party)
+			entry["party_name"] = party_name

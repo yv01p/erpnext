@@ -8,13 +8,14 @@ from frappe.utils import flt
 
 from erpnext.accounts.party import get_partywise_advanced_payment_amount
 from erpnext.accounts.report.accounts_receivable.accounts_receivable import ReceivablePayableReport
+from erpnext.accounts.report.utils import PARTY_NAME_FIELD, add_party_name_column
+from erpnext.accounts.report.utils import show_party_name as _show_party_name
 from erpnext.accounts.utils import get_currency_precision, get_party_types_from_account_type
 
 
 def execute(filters=None):
 	args = {
 		"account_type": "Receivable",
-		"naming_by": ["Selling Settings", "cust_master_name"],
 	}
 
 	return AccountsReceivableSummary(filters).run(args)
@@ -24,7 +25,8 @@ class AccountsReceivableSummary(ReceivablePayableReport):
 	def run(self, args):
 		self.account_type = args.get("account_type")
 		self.party_type = get_party_types_from_account_type(self.account_type)
-		self.party_naming_by = frappe.db.get_single_value(args.get("naming_by")[0], args.get("naming_by")[1])
+		self.current_party_type = self.party_type[0] if len(self.party_type) == 1 else None
+		self.show_party_name = _show_party_name(self.current_party_type)
 		self.get_columns()
 		self.get_data(args)
 		return self.columns, self.data
@@ -62,14 +64,10 @@ class AccountsReceivableSummary(ReceivablePayableReport):
 			row = frappe._dict()
 
 			row.party = party
-			if self.party_naming_by == "Naming Series":
-				if self.account_type == "Payable":
-					doctype = "Supplier"
-					fieldname = "supplier_name"
-				else:
-					doctype = "Customer"
-					fieldname = "customer_name"
-				row.party_name = frappe.get_cached_value(doctype, party, fieldname)
+			if self.show_party_name:
+				party_type = party_dict.party_type
+				fieldname = PARTY_NAME_FIELD.get(party_type, "name")
+				row.party_name = frappe.get_cached_value(party_type, party, fieldname)
 
 			row.update(party_dict)
 
@@ -149,15 +147,15 @@ class AccountsReceivableSummary(ReceivablePayableReport):
 			fieldtype="Dynamic Link",
 			options="party_type",
 			width=180,
-			sticky=(self.party_naming_by not in ["Naming Series", "Auto Name"]),
+			sticky=(not self.show_party_name),
 		)
 
-		if self.party_naming_by == "Naming Series":
-			self.add_column(
-				label=_("Supplier Name") if self.account_type == "Payable" else _("Customer Name"),
+		if self.show_party_name:
+			add_party_name_column(
+				self.columns,
+				party_type=self.current_party_type,
 				fieldname="party_name",
-				fieldtype="Data",
-				sticky=True,
+				column_overrides={"sticky": True},
 			)
 
 		credit_debit_label = "Credit Note" if self.account_type == "Receivable" else "Debit Note"
