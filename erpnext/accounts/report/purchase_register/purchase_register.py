@@ -127,13 +127,12 @@ def _execute(filters=None, additional_table_columns=None):
 
 		# total tax, grand total, rounded total & outstanding amount
 
-		outstanding_precision = (
-			get_field_precision(
-				frappe.get_meta("Purchase Invoice").get_field("outstanding_amount"),
-				currency=company_currency,
-			)
-			or 2
+		outstanding_precision = get_field_precision(
+			frappe.get_meta("Purchase Invoice").get_field("outstanding_amount"),
+			currency=company_currency,
 		)
+		if outstanding_precision is None:
+			outstanding_precision = 2
 		row.update(
 			{
 				"total_tax": total_tax,

@@ -217,7 +217,7 @@ class TestItemWiseSalesRegister(ERPNextTestSuite, AccountsTestMixin):
 
 	def test_sales_register_converts_outstanding_amount_to_company_currency(self):
 		si1 = create_sales_invoice(
-			customer="_Test Customer",
+			customer="_Test Customer USD",
 			currency="USD",
 			conversion_rate=80,
 			qty=1,
