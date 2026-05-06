@@ -7,13 +7,20 @@ import sys
 from unittest.mock import MagicMock, patch
 
 import frappe
-from frappe.utils import add_days, nowdate
+from frappe.utils import add_days, flt, nowdate
 
 from erpnext.accounts.doctype.payment_entry.payment_entry import get_payment_entry
-from erpnext.accounts.doctype.payment_entry.test_payment_entry import create_payment_terms_template
-from erpnext.accounts.doctype.payment_request.payment_request import make_payment_request
+from erpnext.accounts.doctype.payment_entry.test_payment_entry import (
+	create_payment_entry,
+	create_payment_terms_template,
+)
+from erpnext.accounts.doctype.payment_request.payment_request import (
+	make_payment_request,
+	update_payment_requests_as_per_pe_references,
+)
 from erpnext.accounts.doctype.purchase_invoice.test_purchase_invoice import make_purchase_invoice
 from erpnext.accounts.doctype.sales_invoice.test_sales_invoice import create_sales_invoice
+from erpnext.accounts.test.accounts_mixin import AccountsTestMixin
 from erpnext.buying.doctype.purchase_order.test_purchase_order import create_purchase_order
 from erpnext.selling.doctype.sales_order.test_sales_order import make_sales_order
 from erpnext.setup.utils import get_exchange_rate
@@ -227,7 +234,6 @@ class TestPaymentRequest(ERPNextTestSuite):
 			supplier="_Test Supplier USD",
 			debit_to="_Test Payable USD - _TC",
 			currency="USD",
-			conversion_rate=50,
 		)
 
 		pr = make_payment_request(
@@ -252,7 +258,6 @@ class TestPaymentRequest(ERPNextTestSuite):
 			supplier="_Test Supplier USD",
 			debit_to="_Test Payable USD - _TC",
 			currency="USD",
-			conversion_rate=50,
 		)
 
 		pr = make_payment_request(
@@ -319,7 +324,6 @@ class TestPaymentRequest(ERPNextTestSuite):
 			customer="_Test Customer USD",
 			debit_to="_Test Receivable USD - _TC",
 			currency="USD",
-			conversion_rate=50,
 		)
 
 		pr = make_payment_request(
@@ -334,11 +338,12 @@ class TestPaymentRequest(ERPNextTestSuite):
 
 		pe = pr.set_as_paid()
 
+		expected_amount = si_usd.grand_total
 		expected_gle = dict(
 			(d[0], d)
 			for d in [
-				["_Test Receivable USD - _TC", 0, 5000, si_usd.name],
-				[pr.payment_account, 5000.0, 0, None],
+				["_Test Receivable USD - _TC", 0, expected_amount, si_usd.name],
+				[pr.payment_account, expected_amount, 0, None],
 			]
 		)
 
@@ -363,7 +368,6 @@ class TestPaymentRequest(ERPNextTestSuite):
 			customer="_Test Customer USD",
 			debit_to="_Test Receivable USD - _TC",
 			currency="USD",
-			conversion_rate=50,
 		)
 
 		pr = make_payment_request(
@@ -975,6 +979,32 @@ class TestPaymentRequest(ERPNextTestSuite):
 				return_doc=True,
 				schedules=schedules,
 			)
+
+	def create_data(self):
+		custom = AccountsTestMixin
+		customer = custom.create_customer(self, currency="USD")
+		so = make_sales_order(customer=customer, currency="USD", qty=10, rate=100)
+		pr = make_payment_request(dt="Sales Order", dn=so.name, mute_email=1, return_doc=True)
+
+		# Manually set grand_total for partial payment test scenario
+		pr.grand_total = 100
+		pr.save().submit()
+		pe = create_payment_entry(paid_amount=100, paid_from="_Test Bank USD - _TC", save=True, submit=True)
+
+		# Manually add references in Payment Entry
+		references = [frappe._dict({"payment_request": pr.name, "allocated_amount": 100, "parent": pe.name})]
+
+		return pr, pe, references
+
+	@ERPNextTestSuite.change_settings("Accounts Settings", {"fetch_payment_schedule_in_payment_request": 0})
+	def test_exchange_rate_applied(self):
+		pr, pe, references = self.create_data()
+		update_payment_requests_as_per_pe_references(references, cancel=False)
+		pr.reload()
+
+		# Convert grand_total from USD to INR (base currency) to compare with outstanding_amount(INR)
+		grand_total = pr.grand_total * pe.source_exchange_rate
+		self.assertEqual(flt(pr.outstanding_amount), grand_total - pe.base_paid_amount)
 
 
 class TestPaymentRequestV2Gateway(ERPNextTestSuite):
