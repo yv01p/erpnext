@@ -1552,7 +1552,7 @@ def make_opening_stock_entry(
 	serial_no_series: str | None = None,
 	create_new_batch: int = 0,
 	batch_number_series: str | None = None,
-) -> str:
+):
 	if not frappe.has_permission("Item", "write", item_code):
 		frappe.throw(_("Not permitted"), frappe.PermissionError)
 
@@ -1560,6 +1560,13 @@ def make_opening_stock_entry(
 
 	if not item.is_stock_item:
 		frappe.throw(_("Opening Stock can only be set for stock items."))
+
+	if item.stock_ledger_created():
+		frappe.throw(
+			_("Opening Stock cannot be created as stock transactions already exist for item {0}.").format(
+				frappe.bold(item_code)
+			)
+		)
 
 	if flt(qty) <= 0:
 		frappe.throw(_("Quantity must be greater than zero."))
@@ -1624,7 +1631,7 @@ def make_opening_stock_entry(
 	return stock_entry.name
 
 
-def get_default_warehouse_for_opening_stock(item, company: str, warehouse: str | None) -> str:
+def get_default_warehouse_for_opening_stock(item, company: str, warehouse: str | None):
 	if warehouse:
 		return warehouse
 
@@ -1632,18 +1639,22 @@ def get_default_warehouse_for_opening_stock(item, company: str, warehouse: str |
 		if default.company == company and default.default_warehouse:
 			return default.default_warehouse
 
-	target = frappe.get_single_value("Stock Settings", "default_warehouse") or frappe.db.get_value(
-		"Warehouse", {"warehouse_name": _("Stores"), "company": company}
+	settings_warehouse = frappe.get_single_value("Stock Settings", "default_warehouse")
+	if settings_warehouse:
+		warehouse_company = frappe.db.get_value("Warehouse", settings_warehouse, "company")
+		if warehouse_company == company:
+			return settings_warehouse
+
+	stores_warehouse = frappe.db.get_value("Warehouse", {"warehouse_name": _("Stores"), "company": company})
+
+	if stores_warehouse:
+		return stores_warehouse
+
+	frappe.throw(
+		_(
+			"No warehouse found for company {0}. Please set a Default Warehouse in Item Defaults or Stock Settings."
+		).format(frappe.bold(company))
 	)
-
-	if not target:
-		frappe.throw(
-			_(
-				"No warehouse found for company {0}. Please set a Default Warehouse in Item Defaults or Stock Settings."
-			).format(frappe.bold(company))
-		)
-
-	return target
 
 
 def persist_serial_batch_fields_for_opening_stock(
@@ -1651,7 +1662,7 @@ def persist_serial_batch_fields_for_opening_stock(
 	serial_no_series: str | None,
 	create_new_batch: int,
 	batch_number_series: str | None,
-) -> None:
+):
 	fields_to_update = {}
 
 	if serial_no_series:
