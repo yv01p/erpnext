@@ -815,12 +815,13 @@ class POSInvoice(SalesInvoice):
 				return pay_req
 
 	def get_new_payment_request(self, mop):
-		payment_gateway_account = frappe.db.get_value(
+		payment_gateway = frappe.db.get_value(
 			"Payment Gateway Account",
 			{
 				"payment_account": mop.account,
 			},
-			["name"],
+			["parent", "payment_account"],
+			as_dict=1,
 		)
 
 		args = {
@@ -828,7 +829,8 @@ class POSInvoice(SalesInvoice):
 			"dn": self.name,
 			"recipient_id": self.contact_mobile,
 			"mode_of_payment": mop.mode_of_payment,
-			"payment_gateway_account": payment_gateway_account,
+			"payment_gateway": payment_gateway.parent,
+			"payment_account": payment_gateway.payment_account,
 			"payment_request_type": "Inward",
 			"party_type": "Customer",
 			"party": self.customer,
@@ -837,18 +839,10 @@ class POSInvoice(SalesInvoice):
 		return make_payment_request(**args)
 
 	def get_existing_payment_request(self, pay):
-		payment_gateway_account = frappe.db.get_value(
-			"Payment Gateway Account",
-			{
-				"payment_account": pay.account,
-			},
-			["name"],
-		)
-
 		filters = {
 			"reference_doctype": "POS Invoice",
 			"reference_name": self.name,
-			"payment_gateway_account": payment_gateway_account,
+			"payment_account": pay.account,
 			"email_to": self.contact_mobile,
 		}
 		pr = frappe.db.get_value("Payment Request", filters=filters)
