@@ -22,42 +22,48 @@ from erpnext.tests.utils import ERPNextTestSuite
 PAYMENT_URL = "https://example.com/payment"
 
 payment_gateways = [
-	{"doctype": "Payment Gateway", "gateway": "_Test Gateway"},
-	{"doctype": "Payment Gateway", "gateway": "_Test Gateway Phone"},
-	{"doctype": "Payment Gateway", "gateway": "_Test Gateway Other"},
-]
-
-payment_method = [
 	{
-		"doctype": "Payment Gateway Account",
-		"is_default": 1,
-		"payment_gateway": "_Test Gateway",
-		"payment_account": "_Test Bank - _TC",
-		"currency": "INR",
-		"company": "_Test Company",
+		"doctype": "Payment Gateway",
+		"gateway_name": "_Test Gateway",
+		"payment_gateway_account": [
+			{
+				"is_default": 1,
+				"payment_account": "_Test Bank - _TC",
+				"currency": "INR",
+				"company": "_Test Company",
+			},
+			{
+				"payment_account": "_Test Bank USD - _TC",
+				"currency": "USD",
+				"company": "_Test Company",
+			},
+		],
 	},
 	{
-		"doctype": "Payment Gateway Account",
-		"payment_gateway": "_Test Gateway",
-		"payment_account": "_Test Bank USD - _TC",
-		"currency": "USD",
-		"company": "_Test Company",
+		"doctype": "Payment Gateway",
+		"gateway_name": "_Test Gateway Other",
+		"payment_gateway_account": [
+			{
+				"is_default": 1,
+				"payment_account": "_Test Bank USD - _TC",
+				"payment_channel": "Other",
+				"currency": "USD",
+				"company": "_Test Company",
+			}
+		],
 	},
 	{
-		"doctype": "Payment Gateway Account",
-		"payment_gateway": "_Test Gateway Other",
-		"payment_account": "_Test Bank USD - _TC",
-		"payment_channel": "Other",
-		"currency": "USD",
-		"company": "_Test Company",
-	},
-	{
-		"doctype": "Payment Gateway Account",
-		"payment_gateway": "_Test Gateway Phone",
-		"payment_account": "_Test Bank USD - _TC",
-		"payment_channel": "Phone",
-		"currency": "USD",
-		"company": "_Test Company",
+		"doctype": "Payment Gateway",
+		"gateway_name": "_Test Gateway Phone",
+		"payment_gateway_account": [
+			{
+				"is_default": 1,
+				"payment_account": "_Test Bank USD - _TC",
+				"payment_channel": "Phone",
+				"currency": "USD",
+				"company": "_Test Company",
+			}
+		],
 	},
 ]
 
@@ -65,20 +71,8 @@ payment_method = [
 class TestPaymentRequest(ERPNextTestSuite):
 	def setUp(self):
 		for payment_gateway in payment_gateways:
-			if not frappe.db.get_value("Payment Gateway", payment_gateway["gateway"], "name"):
+			if not frappe.db.exists("Payment Gateway", payment_gateway["gateway_name"]):
 				frappe.get_doc(payment_gateway).insert(ignore_permissions=True)
-
-		for method in payment_method:
-			if not frappe.db.get_value(
-				"Payment Gateway Account",
-				{
-					"payment_gateway": method["payment_gateway"],
-					"currency": method["currency"],
-					"company": method["company"],
-				},
-				"name",
-			):
-				frappe.get_doc(method).insert(ignore_permissions=True)
 
 		send_email = patch(
 			"erpnext.accounts.doctype.payment_request.payment_request.PaymentRequest.send_email",
@@ -99,6 +93,31 @@ class TestPaymentRequest(ERPNextTestSuite):
 		self._get_payment_gateway_controller = _get_payment_gateway_controller.start()
 		self.addCleanup(_get_payment_gateway_controller.stop)
 
+	def test_validate_payment_flows(self):
+		bank = frappe.new_doc("Bank")
+		bank.bank_name = "_Test Bank"
+		bank.insert()
+
+		bank_account = frappe.new_doc("Bank Account")
+		bank_account.bank = bank.name
+		bank_account.account_name = "_Test Bank Account"
+		bank_account.insert()
+
+		so = make_sales_order(do_not_save=True)
+		so.save()
+		pr = make_payment_request(
+			dt="Sales Order",
+			dn=so.name,
+			payment_gateway="_Test Gateway",
+			payment_account="_Test Bank - _TC",
+			return_doc=1,
+		)
+
+		pr.bank_account = bank_account.name
+		self.assertRaisesRegex(
+			frappe.ValidationError, "Select either Bank Account or Payment Gateway.", pr.save
+		)
+
 	def test_payment_request_linkings(self):
 		so_inr = make_sales_order(currency="INR", do_not_save=True)
 		so_inr.disable_rounded_total = 1
@@ -108,7 +127,8 @@ class TestPaymentRequest(ERPNextTestSuite):
 			dt="Sales Order",
 			dn=so_inr.name,
 			recipient_id="saurabh@erpnext.com",
-			payment_gateway_account="_Test Gateway - INR - _TC",
+			payment_gateway="_Test Gateway",
+			payment_account="_Test Bank - _TC",
 		)
 
 		self.assertEqual(pr.reference_doctype, "Sales Order")
@@ -117,12 +137,18 @@ class TestPaymentRequest(ERPNextTestSuite):
 
 		conversion_rate = get_exchange_rate("USD", "INR")
 
-		si_usd = create_sales_invoice(currency="USD", conversion_rate=conversion_rate)
+		si_usd = create_sales_invoice(
+			customer="_Test Customer 1",
+			currency="USD",
+			conversion_rate=conversion_rate,
+			debit_to="_Test Receivable USD - _TC",
+		)
 		pr = make_payment_request(
 			dt="Sales Invoice",
 			dn=si_usd.name,
 			recipient_id="saurabh@erpnext.com",
-			payment_gateway_account="_Test Gateway - USD - _TC",
+			payment_gateway="_Test Gateway",
+			payment_account="_Test Bank USD - _TC",
 		)
 
 		self.assertEqual(pr.reference_doctype, "Sales Invoice")
@@ -135,7 +161,8 @@ class TestPaymentRequest(ERPNextTestSuite):
 		pr = make_payment_request(
 			dt="Sales Order",
 			dn=so.name,
-			payment_gateway_account="_Test Gateway Other - USD - _TC",
+			payment_gateway="_Test Gateway Other",
+			payment_account="_Test Bank USD - _TC",
 			submit_doc=True,
 			return_doc=True,
 		)
@@ -150,7 +177,8 @@ class TestPaymentRequest(ERPNextTestSuite):
 		pr = make_payment_request(
 			dt="Sales Order",
 			dn=so.name,
-			payment_gateway_account="_Test Gateway - USD - _TC",  # email channel
+			payment_gateway="_Test Gateway",
+			payment_account="_Test Bank USD - _TC",
 			submit_doc=False,
 			return_doc=True,
 		)
@@ -168,7 +196,8 @@ class TestPaymentRequest(ERPNextTestSuite):
 		pr = make_payment_request(
 			dt="Sales Order",
 			dn=so.name,
-			payment_gateway_account="_Test Gateway Phone - USD - _TC",
+			payment_gateway="_Test Gateway Phone",
+			payment_account="_Test Bank USD - _TC",
 			submit_doc=True,
 			return_doc=True,
 		)
@@ -185,7 +214,8 @@ class TestPaymentRequest(ERPNextTestSuite):
 		pr = make_payment_request(
 			dt="Sales Order",
 			dn=so.name,
-			payment_gateway_account="_Test Gateway - USD - _TC",  # email channel
+			payment_gateway="_Test Gateway",
+			payment_account="_Test Bank USD - _TC",
 			submit_doc=True,
 			return_doc=True,
 		)
@@ -206,7 +236,8 @@ class TestPaymentRequest(ERPNextTestSuite):
 		pr = make_payment_request(
 			dt="Sales Order",
 			dn=so.name,
-			payment_gateway_account="_Test Gateway - USD - _TC",  # email channel
+			payment_gateway="_Test Gateway",
+			payment_account="_Test Bank USD - _TC",
 			make_sales_invoice=True,
 			mute_email=True,
 			submit_doc=True,
@@ -237,7 +268,8 @@ class TestPaymentRequest(ERPNextTestSuite):
 			party="_Test Supplier USD",
 			recipient_id="user@example.com",
 			mute_email=1,
-			payment_gateway_account="_Test Gateway - USD - _TC",
+			payment_gateway="_Test Gateway",
+			payment_account="_Test Bank USD - _TC",
 			submit_doc=1,
 			return_doc=1,
 		)
@@ -262,7 +294,8 @@ class TestPaymentRequest(ERPNextTestSuite):
 			dn=purchase_invoice.name,
 			recipient_id="user@example.com",
 			mute_email=1,
-			payment_gateway_account="_Test Gateway - USD - _TC",
+			payment_gateway="_Test Gateway",
+			payment_account="_Test Bank USD - _TC",
 			return_doc=1,
 		)
 
@@ -281,7 +314,8 @@ class TestPaymentRequest(ERPNextTestSuite):
 			dn=purchase_invoice.name,
 			recipient_id="user@example.com",
 			mute_email=1,
-			payment_gateway_account="_Test Gateway - USD - _TC",
+			payment_gateway="_Test Gateway",
+			payment_account="_Test Bank USD - _TC",
 			return_doc=1,
 		)
 
@@ -305,7 +339,8 @@ class TestPaymentRequest(ERPNextTestSuite):
 			dn=so_inr.name,
 			recipient_id="saurabh@erpnext.com",
 			mute_email=1,
-			payment_gateway_account="_Test Gateway - INR - _TC",
+			payment_gateway="_Test Gateway",
+			payment_account="_Test Bank - _TC",
 			submit_doc=1,
 			return_doc=1,
 		)
@@ -327,7 +362,8 @@ class TestPaymentRequest(ERPNextTestSuite):
 			dn=si_usd.name,
 			recipient_id="saurabh@erpnext.com",
 			mute_email=1,
-			payment_gateway_account="_Test Gateway - USD - _TC",
+			payment_gateway="_Test Gateway",
+			payment_account="_Test Bank USD - _TC",
 			submit_doc=1,
 			return_doc=1,
 		)
@@ -371,7 +407,8 @@ class TestPaymentRequest(ERPNextTestSuite):
 			dn=si_usd.name,
 			recipient_id="saurabh@erpnext.com",
 			mute_email=1,
-			payment_gateway_account="_Test Gateway - USD - _TC",
+			payment_gateway="_Test Gateway",
+			payment_account="_Test Bank USD - _TC",
 			submit_doc=1,
 			return_doc=1,
 		)
@@ -983,15 +1020,8 @@ class TestPaymentRequestV2Gateway(ERPNextTestSuite):
 	def setUp(self):
 		"""Set up payment gateway fixtures for flow tests."""
 		for payment_gateway in payment_gateways:
-			if not frappe.db.get_value("Payment Gateway", payment_gateway["gateway"], "name"):
+			if not frappe.db.exists("Payment Gateway", payment_gateway["gateway_name"]):
 				frappe.get_doc(payment_gateway).insert(ignore_permissions=True)
-		for method in payment_method:
-			if not frappe.db.get_value(
-				"Payment Gateway Account",
-				{"payment_gateway": method["payment_gateway"], "currency": method["currency"]},
-				"name",
-			):
-				frappe.get_doc(method).insert(ignore_permissions=True)
 
 	def _mock_payments_modules(self, is_v2_gateway_return_value):
 		"""Helper to mock both payments and payments.utils modules.
@@ -1237,7 +1267,8 @@ class TestPaymentRequestV2Gateway(ERPNextTestSuite):
 							dt="Sales Order",
 							dn=so.name,
 							recipient_id="test@example.com",
-							payment_gateway_account="_Test Gateway - INR - _TC",
+							payment_gateway="_Test Gateway",
+							payment_account="_Test Bank - _TC",
 							mute_email=True,
 							submit_doc=True,
 							return_doc=True,
@@ -1276,7 +1307,8 @@ class TestPaymentRequestV2Gateway(ERPNextTestSuite):
 									dt="Sales Order",
 									dn=so.name,
 									recipient_id="test@example.com",
-									payment_gateway_account="_Test Gateway - INR - _TC",
+									payment_gateway="_Test Gateway",
+									payment_account="_Test Bank - _TC",
 									mute_email=True,
 									submit_doc=True,
 									return_doc=True,
@@ -1311,8 +1343,8 @@ class TestPaymentRequestV2Gateway(ERPNextTestSuite):
 			dt="Sales Order",
 			dn=so.name,
 			recipient_id="test@example.com",
-			payment_gateway_account="_Test Gateway - INR - _TC",
-			mute_email=True,
+			payment_gateway="_Test Gateway",
+			payment_account="_Test Bank - _TC",
 			submit_doc=False,
 			return_doc=True,
 		)
@@ -1345,7 +1377,8 @@ class TestPaymentRequestV2Gateway(ERPNextTestSuite):
 			dt="Sales Order",
 			dn=so.name,
 			recipient_id="test@example.com",
-			payment_gateway_account="_Test Gateway - INR - _TC",
+			payment_gateway="_Test Gateway",
+			payment_account="_Test Bank - _TC",
 			mute_email=True,
 			submit_doc=False,
 			return_doc=True,
@@ -1376,7 +1409,8 @@ class TestPaymentRequestV2Gateway(ERPNextTestSuite):
 			dt="Sales Order",
 			dn=so.name,
 			recipient_id="test@example.com",
-			payment_gateway_account="_Test Gateway - INR - _TC",
+			payment_gateway="_Test Gateway",
+			payment_account="_Test Bank - _TC",
 			mute_email=True,
 			submit_doc=False,
 			return_doc=True,
@@ -1559,7 +1593,8 @@ class TestPaymentRequestV2Gateway(ERPNextTestSuite):
 							dt="Sales Order",
 							dn=so.name,
 							recipient_id="test@example.com",
-							payment_gateway_account="_Test Gateway - INR - _TC",
+							payment_gateway="_Test Gateway",
+							payment_account="_Test Bank - _TC",
 							mute_email=False,  # Email should be sent
 							submit_doc=True,
 							return_doc=True,
@@ -1589,7 +1624,8 @@ class TestPaymentRequestV2Gateway(ERPNextTestSuite):
 							dt="Sales Order",
 							dn=so.name,
 							recipient_id="test@example.com",
-							payment_gateway_account="_Test Gateway - INR - _TC",
+							payment_gateway="_Test Gateway",
+							payment_account="_Test Bank - _TC",
 							mute_email=False,
 							submit_doc=False,
 							return_doc=True,
@@ -1624,7 +1660,6 @@ class TestPaymentRequestV2Gateway(ERPNextTestSuite):
 					)
 					# Clear the payment gateway
 					pr.payment_gateway = None
-					pr.payment_gateway_account = None
 					pr.submit()
 
 					# Neither v1 nor v2 flow should be called
@@ -1677,7 +1712,8 @@ class TestPaymentRequestV2Gateway(ERPNextTestSuite):
 						dt="Sales Order",
 						dn=so.name,
 						recipient_id="test@example.com",
-						payment_gateway_account="_Test Gateway - INR - _TC",
+						payment_gateway="_Test Gateway",
+						payment_account="_Test Bank - _TC",
 						mute_email=False,  # Field says don't mute
 						submit_doc=False,
 						return_doc=True,
@@ -1861,7 +1897,8 @@ class TestPaymentRequestV2Gateway(ERPNextTestSuite):
 			dt="Sales Order",
 			dn=so.name,
 			recipient_id="test@example.com",
-			payment_gateway_account="_Test Gateway - USD - _TC",
+			payment_gateway="_Test Gateway",
+			payment_account="_Test Bank USD - _TC",
 			mute_email=True,
 			submit_doc=False,
 			return_doc=True,
@@ -1924,7 +1961,8 @@ class TestPaymentRequestV2Gateway(ERPNextTestSuite):
 			dt="Sales Order",
 			dn=so.name,
 			recipient_id="test@example.com",
-			payment_gateway_account="_Test Gateway - INR - _TC",
+			payment_gateway="_Test Gateway",
+			payment_account="_Test Bank - _TC",
 			mute_email=True,
 			submit_doc=False,
 			return_doc=True,
@@ -1956,7 +1994,8 @@ class TestPaymentRequestV2Gateway(ERPNextTestSuite):
 			dt="Sales Order",
 			dn=so.name,
 			recipient_id="test@example.com",
-			payment_gateway_account="_Test Gateway - INR - _TC",
+			payment_gateway="_Test Gateway",
+			payment_account="_Test Bank - _TC",
 			mute_email=True,
 			submit_doc=False,
 			return_doc=True,
