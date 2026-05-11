@@ -5,7 +5,6 @@ from frappe.utils import flt, getdate, today
 from erpnext.accounts.doctype.sales_invoice.test_sales_invoice import create_sales_invoice
 from erpnext.accounts.report.sales_register.sales_register import execute
 from erpnext.accounts.test.accounts_mixin import AccountsTestMixin
-from erpnext.selling.doctype.customer.test_customer import make_customer
 from erpnext.selling.doctype.sales_order.test_sales_order import make_sales_order
 from erpnext.tests.utils import ERPNextTestSuite
 
@@ -224,8 +223,7 @@ class TestItemWiseSalesRegister(ERPNextTestSuite, AccountsTestMixin):
 			rate=100,
 			debit_to="_Test Receivable USD - _TC",
 		)
-		make_customer("_Test Customer2")
-		si2 = create_sales_invoice(customer="_Test Customer2", conversion_rate=1, qty=1, rate=200)
+		si2 = create_sales_invoice(customer="_Test Customer 1", conversion_rate=1, qty=1, rate=200)
 		company = si1.company
 
 		_, data, *_ = execute(frappe._dict({"company": company}))
