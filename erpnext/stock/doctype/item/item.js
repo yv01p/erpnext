@@ -712,6 +712,29 @@ $.extend(erpnext.item, {
 	},
 
 	show_opening_stock_dialog: function (frm) {
+		const has_serial = cint(frm.doc.has_serial_no);
+		const has_batch = cint(frm.doc.has_batch_no);
+
+		if (has_serial || has_batch) {
+			const default_company = frappe.defaults.get_default("company");
+			const row = (frm.doc.item_defaults || []).find((d) => d.company === default_company);
+			const default_warehouse = (row && row.default_warehouse) || "";
+
+			frappe.route_options = {
+				purpose: "Opening Stock",
+				company: default_company,
+			};
+
+			frappe.new_doc("Stock Reconciliation", null, (doc) => {
+				const child = doc.items[0];
+				frappe.model.set_value(child.doctype, child.name, "item_code", frm.doc.name);
+				if (default_warehouse) {
+					frappe.model.set_value(child.doctype, child.name, "warehouse", default_warehouse);
+				}
+			});
+			return;
+		}
+
 		const companies = (frm.doc.item_defaults || []).map((d) => d.company).filter(Boolean);
 
 		if (!companies.length) {
@@ -729,9 +752,6 @@ $.extend(erpnext.item, {
 			const row = (frm.doc.item_defaults || []).find((d) => d.company === company);
 			return (row && row.default_warehouse) || "";
 		};
-
-		const has_serial = cint(frm.doc.has_serial_no);
-		const has_batch = cint(frm.doc.has_batch_no);
 
 		const fields = [
 			{
@@ -779,51 +799,10 @@ $.extend(erpnext.item, {
 			},
 		];
 
-		if (has_serial) {
-			fields.push(
-				{ fieldtype: "Section Break", label: __("Serial / Batch") },
-				{
-					label: __("Serial No Series"),
-					fieldname: "serial_no_series",
-					fieldtype: "Data",
-					default: frm.doc.serial_no_series || "",
-					reqd: 1,
-					description: __(
-						"Example: SN-.YYYY.-.#####. - One serial number will be created per unit of qty."
-					),
-				}
-			);
-		}
-
-		if (has_batch) {
-			if (!has_serial) {
-				fields.push({ fieldtype: "Section Break", label: __("Serial Nos / Batches") });
-			}
-			fields.push(
-				{
-					label: __("Automatically Create New Batch"),
-					fieldname: "create_new_batch",
-					fieldtype: "Check",
-					default: 1,
-					read_only: 1,
-				},
-				{
-					label: __("Batch Number Series"),
-					fieldname: "batch_number_series",
-					fieldtype: "Data",
-					default: frm.doc.batch_number_series || "",
-					reqd: 1,
-					description: __(
-						"Example: BATCH-.YYYY.-.#####. - A new batch will be auto-created from this series."
-					),
-				}
-			);
-		}
-
 		const dialog = new frappe.ui.Dialog({
-			title: __("Set Opening Stock"),
+			title: __("Add Opening Stock"),
 			fields: fields,
-			primary_action_label: __("Create Stock Entry"),
+			primary_action_label: __("Save"),
 			primary_action: function (values) {
 				frappe.call({
 					method: "erpnext.stock.doctype.item.item.make_opening_stock_entry",
@@ -833,9 +812,6 @@ $.extend(erpnext.item, {
 						qty: values.qty,
 						valuation_rate: values.valuation_rate || 0,
 						warehouse: values.warehouse || null,
-						serial_no_series: values.serial_no_series || null,
-						create_new_batch: values.create_new_batch ? 1 : 0,
-						batch_number_series: values.batch_number_series || null,
 					},
 					freeze: true,
 					freeze_message: __("Creating Opening Stock Entry..."),
@@ -851,6 +827,25 @@ $.extend(erpnext.item, {
 
 		dialog.set_value("warehouse", get_warehouse_for_company(companies[0]));
 		dialog.show();
+		dialog.add_custom_action(__("Edit Full Form"), function () {
+			const default_company = frappe.defaults.get_default("company");
+			const row = (frm.doc.item_defaults || []).find((d) => d.company === default_company);
+
+			frappe.route_options = {
+				purpose: "Opening Stock",
+				company: default_company,
+			};
+
+			frappe.new_doc("Stock Reconciliation", null, (doc) => {
+				const child = doc.items[0];
+				frappe.model.set_value(child.doctype, child.name, "item_code", frm.doc.name);
+				if (row && row.default_warehouse) {
+					frappe.model.set_value(child.doctype, child.name, "warehouse", row.default_warehouse);
+				}
+			});
+
+			dialog.hide();
+		});
 	},
 
 	weight_to_validate: function (frm) {
