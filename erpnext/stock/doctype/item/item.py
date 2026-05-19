@@ -31,6 +31,7 @@ from erpnext.controllers.item_variant import (
 	validate_item_variant_attributes,
 )
 from erpnext.stock.doctype.item_default.item_default import ItemDefault
+from erpnext.stock.serial_batch_bundle import SerialBatchCreation
 from erpnext.stock.utils import get_valuation_method
 
 
@@ -303,7 +304,11 @@ class Item(Document):
 
 	def set_opening_stock(self):
 		"""set opening stock"""
-		if not self.is_stock_item or self.has_serial_no or self.has_batch_no:
+		if (
+			not self.is_stock_item
+			or (self.has_serial_no and not self.serial_no_series)
+			or (self.has_batch_no and (not self.create_new_batch or not self.batch_number_series))
+		):
 			return
 
 		if self.valuation_rate is None and not self.is_customer_provided_item:
@@ -333,35 +338,23 @@ class Item(Document):
 				if not opening_account:
 					frappe.throw(
 						_(
-							"Please set a Temporary Opening account for company {0} to create an Opening Stock entry."
+							"Please set a Temporary Opening account for company {0} to create an Opening Stock reconciliation."
 						).format(frappe.bold(default.company))
 					)
-				stock_reco = frappe.get_doc(
-					{
-						"doctype": "Stock Reconciliation",
-						"purpose": "Opening Stock",
-						"company": default.company,
-						"expense_account": opening_account,
-						"items": [
-							{
-								"item_code": self.name,
-								"warehouse": default_warehouse,
-								"qty": self.opening_stock,
-								"valuation_rate": self.valuation_rate,
-								"allow_zero_valuation_rate": 1 if flt(self.valuation_rate) == 0 else 0,
-							}
-						],
-					}
+				stock_reco = create_opening_stock_reconciliation(
+					item_code=self.name,
+					company=default.company,
+					qty=self.opening_stock,
+					valuation_rate=self.valuation_rate,
+					warehouse=default_warehouse,
+					expense_account=opening_account,
 				)
-
-				stock_reco.insert()
-				stock_reco.submit()
 				stock_reco.add_comment("Comment", _("Opening Stock"))
 
 				stock_reco_link = frappe.utils.get_link_to_form("Stock Reconciliation", stock_reco.name)
 				if self.valuation_rate == 0:
 					frappe.msgprint(
-						_("Opening Stock entry created with zero valuation rate: {0}").format(
+						_("Opening Stock reconciliation created with zero valuation rate: {0}").format(
 							stock_reco_link
 						),
 						indicator="orange",
@@ -369,7 +362,7 @@ class Item(Document):
 					)
 				else:
 					frappe.msgprint(
-						_("Opening Stock entry created: {0}").format(stock_reco_link),
+						_("Opening Stock reconciliation created: {0}").format(stock_reco_link),
 						indicator="green",
 						alert=True,
 					)
@@ -1594,34 +1587,22 @@ def make_opening_stock_entry(
 	if not opening_account:
 		frappe.throw(
 			_(
-				"Please set a Temporary Opening account for company {0} to create an Opening Stock entry."
+				"Please set a Temporary Opening account for company {0} to create an Opening Stock reconciliation."
 			).format(frappe.bold(company))
 		)
 
-	stock_reco = frappe.get_doc(
-		{
-			"doctype": "Stock Reconciliation",
-			"purpose": "Opening Stock",
-			"company": company,
-			"expense_account": opening_account,
-			"items": [
-				{
-					"item_code": item_code,
-					"warehouse": target_warehouse,
-					"qty": flt(qty),
-					"valuation_rate": flt(valuation_rate),
-					"allow_zero_valuation_rate": 1 if flt(valuation_rate) == 0 else 0,
-				}
-			],
-		}
+	stock_reco = create_opening_stock_reconciliation(
+		item_code=item_code,
+		company=company,
+		qty=qty,
+		valuation_rate=valuation_rate,
+		warehouse=target_warehouse,
+		expense_account=opening_account,
 	)
-
-	stock_reco.insert()
-	stock_reco.submit()
 	stock_reco.add_comment("Comment", _("Opening Stock"))
 
 	frappe.msgprint(
-		_("Opening Stock entry created: {0}").format(
+		_("Opening Stock reconciliation created: {0}").format(
 			get_link_to_form("Stock Reconciliation", stock_reco.name)
 		),
 		indicator="green",
@@ -1629,6 +1610,73 @@ def make_opening_stock_entry(
 	)
 
 	return stock_reco.name
+
+
+def create_opening_stock_reconciliation(
+	item_code: str,
+	company: str,
+	qty: float,
+	valuation_rate: float,
+	warehouse: str,
+	expense_account: str,
+):
+	stock_reco = frappe.get_doc(
+		{
+			"doctype": "Stock Reconciliation",
+			"purpose": "Opening Stock",
+			"company": company,
+			"expense_account": expense_account,
+			"items": [
+				{
+					"item_code": item_code,
+					"warehouse": warehouse,
+					"qty": flt(qty),
+					"valuation_rate": flt(valuation_rate),
+					"allow_zero_valuation_rate": 1 if flt(valuation_rate) == 0 else 0,
+					"reconcile_all_serial_batch": 1,
+				}
+			],
+		}
+	)
+
+	stock_reco.insert()
+	set_opening_stock_serial_batch_bundle(stock_reco)
+	stock_reco.submit()
+
+	return stock_reco
+
+
+def set_opening_stock_serial_batch_bundle(stock_reco):
+	row = stock_reco.items[0]
+	item_details = frappe.get_cached_value(
+		"Item", row.item_code, ["has_serial_no", "has_batch_no"], as_dict=1
+	)
+
+	if not (item_details.has_serial_no or item_details.has_batch_no):
+		return
+
+	bundle = SerialBatchCreation(
+		{
+			"item_code": row.item_code,
+			"warehouse": row.warehouse,
+			"voucher_type": stock_reco.doctype,
+			"voucher_no": stock_reco.name,
+			"voucher_detail_no": row.name,
+			"posting_date": stock_reco.posting_date,
+			"posting_time": stock_reco.posting_time,
+			"qty": row.qty,
+			"avg_rate": row.valuation_rate,
+			"type_of_transaction": "Inward",
+			"company": stock_reco.company,
+			"do_not_submit": True,
+		}
+	).make_serial_and_batch_bundle()
+
+	if not bundle:
+		return
+
+	row.db_set("serial_and_batch_bundle", bundle.name, update_modified=False)
+	row.serial_and_batch_bundle = bundle.name
 
 
 def get_default_warehouse_for_opening_stock(item, company: str, warehouse: str | None):
