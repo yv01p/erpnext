@@ -16,6 +16,7 @@
   "item_name",
   "item_group",
   "stock_uom",
+  "image",
   "column_break0",
   "disabled",
   "is_stock_item",
@@ -40,7 +41,6 @@
   "over_delivery_receipt_allowance",
   "column_break_wugd",
   "over_billing_allowance",
-  "image",
   "section_break_11",
   "brand",
   "description",
@@ -139,6 +139,9 @@
   "inspection_required_before_delivery",
   "column_break_pxjh",
   "quality_inspection_template",
+  "pricing_tab",
+  "item_prices_column",
+  "prices_html",
   "dashboard_tab"
  ],
  "fields": [
@@ -257,6 +260,7 @@
    "description": "Used to create an opening Stock Entry with the Valuation Rate when the item is saved",
    "fieldname": "opening_stock",
    "fieldtype": "Float",
+   "hidden": 1,
    "label": "Opening Stock"
   },
   {
@@ -1070,6 +1074,23 @@
   {
    "fieldname": "column_break_kpmi",
    "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "prices_html",
+   "fieldtype": "HTML",
+   "label": "Prices HTML",
+   "options": "<div id=\\\"item-prices-container\\\"></div>"
+  },
+  {
+   "depends_on": "eval:!doc.__islocal",
+   "fieldname": "pricing_tab",
+   "fieldtype": "Tab Break",
+   "label": "Pricing"
+  },
+  {
+   "fieldname": "item_prices_column",
+   "fieldtype": "Column Break",
+   "label": "Item Prices"
   }
  ],
  "icon": "fa fa-tag",
@@ -1077,7 +1098,7 @@
  "image_field": "image",
  "links": [],
  "make_attachments_public": 1,
- "modified": "2026-04-28 17:31:47.613279",
+ "modified": "2026-05-11 13:10:14.624912",
  "modified_by": "Administrator",
  "module": "Stock",
  "name": "Item",
