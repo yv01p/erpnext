@@ -66,6 +66,8 @@ setup_wizard_stages = "erpnext.setup.setup_wizard.setup_wizard.get_setup_stages"
 after_install = "erpnext.setup.install.after_install"
 before_uninstall = "erpnext.setup.install.before_uninstall"
 
+before_migrate = "erpnext.setup.utils.validate_payments_compatibility"
+
 boot_session = "erpnext.startup.boot.boot_session"
 notification_config = "erpnext.startup.notifications.get_notification_config"
 get_help_messages = "erpnext.utilities.activation.get_help_messages"
