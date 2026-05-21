@@ -19,10 +19,6 @@ from erpnext.tests.utils import ERPNextTestSuite
 class TestBudget(ERPNextTestSuite):
 	def setUp(self):
 		frappe.db.set_single_value("Accounts Settings", "use_legacy_budget_controller", False)
-		self.company = "_Test Company"
-		self.fiscal_year = frappe.db.get_value("Fiscal Year", {}, "name")
-		self.account = "_Test Account Cost for Goods Sold - _TC"
-		self.cost_center = "_Test Cost Center - _TC"
 
 	def test_monthly_budget_crossed_ignore(self):
 		set_total_expense_zero(nowdate(), "cost_center")
@@ -161,7 +157,7 @@ class TestBudget(ERPNextTestSuite):
 		po = create_purchase_order(
 			transaction_date=nowdate(), qty=1, rate=accumulated_limit + 1, do_not_submit=True
 		)
-
+		po.items[0].cost_center = "_Test Cost Center - _TC"
 		po.set_missing_values()
 
 		self.assertRaises(BudgetError, po.submit)
@@ -424,6 +420,7 @@ class TestBudget(ERPNextTestSuite):
 		po = create_purchase_order(
 			transaction_date=nowdate(), qty=1, rate=accumulated_limit + 1, do_not_submit=True
 		)
+		po.items[0].cost_center = "_Test Cost Center - _TC"
 		po.set_missing_values()
 
 		self.assertRaises(BudgetError, po.submit)
