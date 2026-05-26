@@ -208,9 +208,9 @@ class AssetRepair(AccountsController):
 
 			depreciation_note = self.get_depreciation_note()
 			reschedule_depreciation(self.asset_doc, depreciation_note)
-			self.make_gl_entries()
+			self.add_asset_activity()
 
-		self.add_asset_activity()
+			self.make_gl_entries()
 
 	def cancel_sabb(self):
 		for row in self.stock_items:
@@ -228,8 +228,8 @@ class AssetRepair(AccountsController):
 
 			depreciation_note = self.get_depreciation_note()
 			reschedule_depreciation(self.asset_doc, depreciation_note)
+			self.add_asset_activity()
 
-		self.add_asset_activity()
 		self.cancel_sabb()
 
 	def after_delete(self):
