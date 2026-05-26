@@ -119,22 +119,20 @@ def validate_returned_items(doc):
 	items_returned = False
 	for d in doc.get("items"):
 		key = d.item_code
-		raise_exception = False
 		if doc.doctype in ["Purchase Receipt", "Purchase Invoice", "Sales Invoice", "POS Invoice"]:
 			field = frappe.scrub(doc.doctype) + "_item"
 			if d.get(field):
 				key = (d.item_code, d.get(field))
-				raise_exception = True
 		elif doc.doctype == "Delivery Note":
-			key = (d.item_code, d.get("dn_detail"))
+			if d.get("dn_detail"):
+				key = (d.item_code, d.get("dn_detail"))
 
 		if d.item_code and (flt(d.qty) <= 0 or flt(d.get("received_qty")) <= 0):
 			if key not in valid_items:
-				frappe.msgprint(
+				frappe.throw(
 					_("Row # {0}: Returned Item {1} does not exist in {2} {3}").format(
 						d.idx, d.item_code, doc.doctype, doc.return_against
 					),
-					raise_exception=raise_exception,
 				)
 			else:
 				ref = valid_items.get(key, frappe._dict())
@@ -251,6 +249,29 @@ def get_ref_item_dict(valid_items, ref_item_row):
 			}
 		),
 	)
+
+	# Also add single item_code key for returns that don't specify a specific line item
+	if ref_item_row.get("name") and ref_item_row.item_code not in valid_items:
+		valid_items.setdefault(
+			ref_item_row.item_code,
+			frappe._dict(
+				{
+					"qty": 0,
+					"rate": 0,
+					"stock_qty": 0,
+					"rejected_qty": 0,
+					"received_qty": 0,
+					"serial_no": [],
+					"conversion_factor": ref_item_row.get("conversion_factor", 1),
+					"batch_no": [],
+				}
+			),
+		)
+		# Point the simple key to the same data dict as the tuple key
+		item_dict = valid_items[key]
+		valid_items[ref_item_row.item_code] = item_dict
+		return valid_items
+
 	item_dict = valid_items[key]
 	item_dict["qty"] += ref_item_row.qty
 	item_dict["stock_qty"] += ref_item_row.get("stock_qty", 0)
