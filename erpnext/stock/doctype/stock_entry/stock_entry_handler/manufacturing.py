@@ -422,9 +422,11 @@ class ManufactureStockEntry(BaseManufactureStockEntry):
 
 	def add_raw_materials_based_on_transfer(self):
 		self.prepare_available_materials_based_on_transfer()
-		pending_qty_to_mfg = flt(self.wo_doc.material_transferred_for_manufacturing) - flt(
-			self.wo_doc.produced_qty
-		)
+		pending_qty_to_mfg = flt(self.doc.fg_completed_qty)
+		if self.doc.work_order:
+			pending_qty_to_mfg = flt(self.wo_doc.material_transferred_for_manufacturing) - flt(
+				self.wo_doc.produced_qty
+			)
 		if pending_qty_to_mfg <= 0 and not self.doc.get("is_return"):
 			return
 		for key in self.available_materials:
