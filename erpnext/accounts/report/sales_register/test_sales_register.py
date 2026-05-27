@@ -1,5 +1,6 @@
 import frappe
-from frappe.utils import getdate, today
+from frappe.model.meta import get_field_precision
+from frappe.utils import flt, getdate, today
 
 from erpnext.accounts.doctype.sales_invoice.test_sales_invoice import create_sales_invoice
 from erpnext.accounts.report.sales_register.sales_register import execute
@@ -212,3 +213,45 @@ class TestItemWiseSalesRegister(ERPNextTestSuite, AccountsTestMixin):
 		}
 		result_output = {k: v for k, v in filtered_output[0].items() if k in expected_result}
 		self.assertDictEqual(result_output, expected_result)
+
+	def test_sales_register_converts_outstanding_amount_to_company_currency(self):
+		si1 = create_sales_invoice(
+			customer="_Test Customer USD",
+			currency="USD",
+			conversion_rate=80,
+			qty=1,
+			rate=100,
+			debit_to="_Test Receivable USD - _TC",
+		)
+		si2 = create_sales_invoice(customer="_Test Customer 1", conversion_rate=1, qty=1, rate=200)
+		company = si1.company
+
+		_, data, *_ = execute(frappe._dict({"company": company}))
+
+		company_currency = frappe.get_cached_value("Company", company, "default_currency")
+		outstanding_precision = (
+			get_field_precision(
+				frappe.get_meta("Sales Invoice").get_field("outstanding_amount"),
+				currency=company_currency,
+			)
+			or 2
+		)
+
+		rows_by_voucher = {row.get("voucher_no"): row for row in data}
+		si1_row = rows_by_voucher.get(si1.name)
+		self.assertIsNotNone(si1_row)
+
+		expected_value = flt(
+			si1.outstanding_amount * (si1.conversion_rate or 1),
+			outstanding_precision,
+		)
+		self.assertEqual(si1_row.get("outstanding_amount"), expected_value)
+
+		si2_row = rows_by_voucher.get(si2.name)
+		self.assertIsNotNone(si2_row)
+
+		expected_value = flt(
+			si2.outstanding_amount * (si2.conversion_rate or 1),
+			outstanding_precision,
+		)
+		self.assertEqual(si2_row.get("outstanding_amount"), expected_value)
