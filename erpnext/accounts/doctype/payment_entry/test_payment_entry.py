@@ -2160,6 +2160,23 @@ class TestPaymentEntry(ERPNextTestSuite):
 		self.assertEqual(rows[0].project, si.project)
 		self.assertEqual(rows[1].project, si.project)
 
+	def test_persist_time_overallocation_throw(self):
+		"""L867-872 is a defensive safety net for state changes between validate and persist.
+		Invoke update_payment_schedule directly with an over-allocated state to exercise it."""
+		create_customer()
+		create_payment_terms_template()
+
+		si = create_sales_invoice(do_not_save=1, qty=1, rate=200)
+		si.payment_terms_template = "Test Receivable Template"
+		si.save().submit()
+
+		pe = get_payment_entry(si.doctype, si.name).save()
+		pe.references[0].allocated_amount = pe.references[0].allocated_amount + 1000
+
+		with self.assertRaises(frappe.ValidationError) as ctx:
+			pe.update_payment_schedule(cancel=0)
+		self.assertIn("Cannot allocate more than", str(ctx.exception))
+
 
 def create_payment_entry(**args):
 	payment_entry = frappe.new_doc("Payment Entry")
