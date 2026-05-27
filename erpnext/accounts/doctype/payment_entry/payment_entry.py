@@ -780,77 +780,141 @@ class PaymentEntry(AccountsController):
 						)
 
 	def update_payment_schedule(self, cancel=0):
-		invoice_payment_amount_map = {}
-		invoice_paid_amount_map = {}
+		payment_amount_map, schedule_detail_map, conversion_rate_map = (
+			self._build_payment_term_maps()
+		)
 
-		for ref in self.get("references"):
-			if not ref.payment_term or not ref.reference_name:
-				continue
-
-			key = (ref.payment_term, ref.reference_name, ref.reference_doctype)
-			invoice_payment_amount_map.setdefault(key, 0.0)
-			invoice_payment_amount_map[key] += ref.allocated_amount
-
-			if not invoice_paid_amount_map.get(key):
-				payment_schedule = frappe.get_all(
-					"Payment Schedule",
-					filters={"parent": ref.reference_name},
-					fields=[
-						"paid_amount",
-						"payment_amount",
-						"payment_term",
-						"discount",
-						"outstanding",
-						"discount_type",
-					],
-				)
-				for term in payment_schedule:
-					invoice_key = (term.payment_term, ref.reference_name, ref.reference_doctype)
-					invoice_paid_amount_map.setdefault(invoice_key, {})
-					invoice_paid_amount_map[invoice_key]["outstanding"] = term.outstanding
-					if not (term.discount_type and term.discount):
-						continue
-
-					if term.discount_type == "Percentage":
-						invoice_paid_amount_map[invoice_key]["discounted_amt"] = ref.total_amount * (
-							term.discount / 100
-						)
-					else:
-						invoice_paid_amount_map[invoice_key]["discounted_amt"] = term.discount
-
-		for idx, (key, allocated_amount) in enumerate(invoice_payment_amount_map.items(), 1):
-			if not invoice_paid_amount_map.get(key):
+		for idx, (key, allocated_amount) in enumerate(payment_amount_map.items(), 1):
+			if not schedule_detail_map.get(key):
 				frappe.throw(_("Payment term {0} not used in {1}").format(key[0], key[1]))
 
 			allocated_amount = self.get_allocated_amount_in_transaction_currency(
 				allocated_amount, key[2], key[1]
 			)
-
-			outstanding = flt(invoice_paid_amount_map.get(key, {}).get("outstanding"))
-			discounted_amt = flt(invoice_paid_amount_map.get(key, {}).get("discounted_amt"))
-
-			conversion_rate = frappe.db.get_value(key[2], {"name": key[1]}, "conversion_rate")
-			base_paid_amount_precision = get_field_precision(
-				frappe.get_meta("Payment Schedule").get_field("base_paid_amount")
+			base_paid_amount, base_outstanding, discounted_amt, outstanding = (
+				self._compute_allocation_amounts(
+					allocated_amount,
+					schedule_detail_map[key],
+					conversion_rate_map[(key[2], key[1])],
+				)
 			)
-			base_outstanding_precision = get_field_precision(
-				frappe.get_meta("Payment Schedule").get_field("base_outstanding")
+			self._apply_payment_schedule_update(
+				idx, key, allocated_amount, discounted_amt,
+				base_paid_amount, base_outstanding, outstanding, cancel,
 			)
 
-			base_paid_amount = flt(
-				(allocated_amount - discounted_amt) * conversion_rate, base_paid_amount_precision
-			)
-			base_outstanding = flt(allocated_amount * conversion_rate, base_outstanding_precision)
+	def _build_payment_term_maps(self):
+		payment_amount_map = {}
+		ref_total_amount = {}
+		parent_set = set()
+		doctype_to_names = {}
 
-			if cancel:
+		for ref in self.get("references"):
+			if not ref.payment_term or not ref.reference_name:
+				continue
+			key = (ref.payment_term, ref.reference_name, ref.reference_doctype)
+			payment_amount_map.setdefault(key, 0.0)
+			payment_amount_map[key] += ref.allocated_amount
+			ref_total_amount.setdefault((ref.reference_name, ref.reference_doctype), ref.total_amount)
+			parent_set.add(ref.reference_name)
+			doctype_to_names.setdefault(ref.reference_doctype, set()).add(ref.reference_name)
+
+		if not parent_set:
+			return {}, {}, {}
+
+		PS = frappe.qb.DocType("Payment Schedule")
+		ps_rows = (
+			frappe.qb.from_(PS)
+			.select(PS.parent, PS.payment_term, PS.outstanding, PS.discount, PS.discount_type)
+			.where(PS.parent.isin(list(parent_set)))
+		).run(as_dict=True)
+
+		conversion_rate_map = {}
+		for ref_doctype, names in doctype_to_names.items():
+			rows = frappe.db.get_all(
+				ref_doctype,
+				filters={"name": ("in", list(names))},
+				fields=["name", "conversion_rate"],
+			)
+			for r in rows:
+				conversion_rate_map[(ref_doctype, r.name)] = r.conversion_rate
+
+		parent_to_doctypes = {}
+		for (ref_name, ref_doctype) in ref_total_amount:
+			parent_to_doctypes.setdefault(ref_name, []).append(ref_doctype)
+
+		schedule_detail_map = {}
+		for row in ps_rows:
+			for ref_doctype in parent_to_doctypes.get(row.parent, []):
+				entry_key = (row.payment_term, row.parent, ref_doctype)
+				entry = schedule_detail_map.setdefault(entry_key, {})
+				entry["outstanding"] = row.outstanding
+				if row.discount_type and row.discount:
+					total_amount = ref_total_amount[(row.parent, ref_doctype)]
+					if row.discount_type == "Percentage":
+						entry["discounted_amt"] = total_amount * (row.discount / 100)
+					else:
+						entry["discounted_amt"] = row.discount
+
+		return payment_amount_map, schedule_detail_map, conversion_rate_map
+
+	def _compute_allocation_amounts(self, allocated_amount, schedule_entry, conversion_rate):
+		outstanding = flt(schedule_entry.get("outstanding"))
+		discounted_amt = flt(schedule_entry.get("discounted_amt"))
+		base_paid_amount_precision = get_field_precision(
+			frappe.get_meta("Payment Schedule").get_field("base_paid_amount")
+		)
+		base_outstanding_precision = get_field_precision(
+			frappe.get_meta("Payment Schedule").get_field("base_outstanding")
+		)
+		base_paid_amount = flt(
+			(allocated_amount - discounted_amt) * conversion_rate, base_paid_amount_precision
+		)
+		base_outstanding = flt(allocated_amount * conversion_rate, base_outstanding_precision)
+		return base_paid_amount, base_outstanding, discounted_amt, outstanding
+
+	def _apply_payment_schedule_update(
+		self, idx, key, allocated_amount, discounted_amt,
+		base_paid_amount, base_outstanding, outstanding, cancel,
+	):
+		if cancel:
+			frappe.db.sql(
+				"""
+				UPDATE `tabPayment Schedule`
+				SET
+					paid_amount = `paid_amount` - %s,
+					base_paid_amount = `base_paid_amount` - %s,
+					discounted_amount = `discounted_amount` - %s,
+					outstanding = `outstanding` + %s,
+					base_outstanding = `base_outstanding` - %s
+				WHERE parent = %s and payment_term = %s""",
+				(
+					allocated_amount - discounted_amt,
+					base_paid_amount,
+					discounted_amt,
+					allocated_amount,
+					base_outstanding,
+					key[1],
+					key[0],
+				),
+			)
+		else:
+			if allocated_amount > outstanding:
+				frappe.throw(
+					_("Row #{0}: Cannot allocate more than {1} against payment term {2}").format(
+						idx, fmt_money(outstanding), key[0]
+					)
+				)
+
+			if allocated_amount and outstanding:
 				frappe.db.sql(
 					"""
 					UPDATE `tabPayment Schedule`
 					SET
-						paid_amount = `paid_amount` - %s,
-						base_paid_amount = `base_paid_amount` - %s,
-						discounted_amount = `discounted_amount` - %s,
-						outstanding = `outstanding` + %s,
+						paid_amount = `paid_amount` + %s,
+						base_paid_amount = `base_paid_amount` + %s,
+						discounted_amount = `discounted_amount` + %s,
+						outstanding = `outstanding` - %s,
 						base_outstanding = `base_outstanding` - %s
 					WHERE parent = %s and payment_term = %s""",
 					(
@@ -863,35 +927,6 @@ class PaymentEntry(AccountsController):
 						key[0],
 					),
 				)
-			else:
-				if allocated_amount > outstanding:
-					frappe.throw(
-						_("Row #{0}: Cannot allocate more than {1} against payment term {2}").format(
-							idx, fmt_money(outstanding), key[0]
-						)
-					)
-
-				if allocated_amount and outstanding:
-					frappe.db.sql(
-						"""
-						UPDATE `tabPayment Schedule`
-						SET
-							paid_amount = `paid_amount` + %s,
-							base_paid_amount = `base_paid_amount` + %s,
-							discounted_amount = `discounted_amount` + %s,
-							outstanding = `outstanding` - %s,
-							base_outstanding = `base_outstanding` - %s
-						WHERE parent = %s and payment_term = %s""",
-						(
-							allocated_amount - discounted_amt,
-							base_paid_amount,
-							discounted_amt,
-							allocated_amount,
-							base_outstanding,
-							key[1],
-							key[0],
-						),
-					)
 
 	def get_allocated_amount_in_transaction_currency(
 		self, allocated_amount, reference_doctype, reference_docname
