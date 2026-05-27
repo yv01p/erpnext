@@ -1,0 +1,58 @@
+[
+	{
+		"account": "Creditors - _TC",
+		"account_currency": "INR",
+		"against": "_Test Account Cost for Goods Sold - _TC",
+		"cost_center": null,
+		"credit": 288.0,
+		"credit_in_account_currency": 288.0,
+		"debit": 0.0,
+		"debit_in_account_currency": 0.0,
+		"is_opening": "No",
+		"party": "_Test Supplier",
+		"party_type": "Supplier",
+		"posting_date": "2024-01-15"
+	},
+	{
+		"account": "Round Off - _TC",
+		"account_currency": "INR",
+		"against": "_Test Supplier",
+		"cost_center": "Main - _TC",
+		"credit": 0.0,
+		"credit_in_account_currency": 0.0,
+		"debit": 0.5,
+		"debit_in_account_currency": 0.5,
+		"is_opening": "No",
+		"party": null,
+		"party_type": null,
+		"posting_date": "2024-01-15"
+	},
+	{
+		"account": "_Test Account Cost for Goods Sold - _TC",
+		"account_currency": "INR",
+		"against": "_Test Supplier",
+		"cost_center": "_Test Cost Center - _TC",
+		"credit": 0.0,
+		"credit_in_account_currency": 0.0,
+		"debit": 250.0,
+		"debit_in_account_currency": 250.0,
+		"is_opening": "No",
+		"party": null,
+		"party_type": null,
+		"posting_date": "2024-01-15"
+	},
+	{
+		"account": "_Test Account VAT - _TC",
+		"account_currency": "INR",
+		"against": "_Test Supplier",
+		"cost_center": "_Test Cost Center - _TC",
+		"credit": 0.0,
+		"credit_in_account_currency": 0.0,
+		"debit": 37.5,
+		"debit_in_account_currency": 37.5,
+		"is_opening": "No",
+		"party": null,
+		"party_type": null,
+		"posting_date": "2024-01-15"
+	}
+]

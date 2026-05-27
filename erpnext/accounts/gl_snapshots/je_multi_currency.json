@@ -1,0 +1,30 @@
+[
+	{
+		"account": "_Test Bank - _TC",
+		"account_currency": "INR",
+		"against": "_Test Bank USD - _TC",
+		"cost_center": "_Test Cost Center - _TC",
+		"credit": 7500.0,
+		"credit_in_account_currency": 7500.0,
+		"debit": 0.0,
+		"debit_in_account_currency": 0.0,
+		"is_opening": "No",
+		"party": null,
+		"party_type": null,
+		"posting_date": "2024-01-15"
+	},
+	{
+		"account": "_Test Bank USD - _TC",
+		"account_currency": "USD",
+		"against": "_Test Bank - _TC",
+		"cost_center": "_Test Cost Center - _TC",
+		"credit": 0.0,
+		"credit_in_account_currency": 0.0,
+		"debit": 7500.0,
+		"debit_in_account_currency": 100.0,
+		"is_opening": "No",
+		"party": null,
+		"party_type": null,
+		"posting_date": "2024-01-15"
+	}
+]

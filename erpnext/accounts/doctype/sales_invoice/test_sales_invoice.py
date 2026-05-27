@@ -3493,6 +3493,14 @@ class TestSalesInvoice(ERPNextTestSuite):
 		si.submit()
 		frappe.db.set_value("Company", "_Test Company", "accounts_frozen_till_date", None)
 
+	def test_sales_invoice_cancellation_post_account_freezing_date(self):
+		si = create_sales_invoice()
+		frappe.db.set_value("Company", "_Test Company", "accounts_frozen_till_date", add_days(getdate(), 1))
+		try:
+			self.assertRaises(frappe.ValidationError, si.cancel)
+		finally:
+			frappe.db.set_value("Company", "_Test Company", "accounts_frozen_till_date", None)
+
 	@ERPNextTestSuite.change_settings("Accounts Settings", {"over_billing_allowance": 0})
 	@ERPNextTestSuite.change_settings("Selling Settings", {"allow_multiple_items": 1})
 	def test_over_billing_case_against_delivery_note(self):
