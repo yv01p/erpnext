@@ -175,6 +175,13 @@
    "label": "Allow Excess Material Transfer"
   },
   {
+   "default": "1",
+   "description": "If enabled, Job Cards are automatically created when a Work Order is submitted.",
+   "fieldname": "auto_create_job_card_from_work_order",
+   "fieldtype": "Check",
+   "label": "Auto Create Job Card on Work Order Submit"
+  },
+  {
    "default": "0",
    "depends_on": "eval: doc.material_consumption",
    "fieldname": "get_rm_cost_from_consumption_entry",
