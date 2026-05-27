@@ -184,6 +184,8 @@ Two dimensions per site:
 1. **Query count** — total `frappe.db.sql` invocations during a single call to the target method. Captured by monkey-patching `frappe.db.sql` for the duration of the measured call (counter increments per invocation; original implementation called through).
 2. **Wall-clock latency** — `time.perf_counter()` around the call; reported as the median of 5 runs after 1 warm-up iteration (to amortize first-call cache misses).
 
+**Cache discipline.** Site 2's original code uses `frappe.db.get_value(..., cache=True)`, which populates Frappe's per-request cache on first miss. The warm-up iteration would otherwise warm this cache, making subsequent measured iterations show 0 queries (cache hits) and inverting the BEFORE vs. AFTER comparison. The script invalidates `frappe.local.cache` between every measured iteration (and between warm-up and the first measured run). This makes the BEFORE measurement reflect a cold request — the production-relevant case for the FIRST validate of a fresh Sales Invoice. The original's `cache=True` benefit on REPEATED invocations within the same request is real but not measured here; the report's "Notes on noise / variance" section acknowledges this scope choice. Sites 1 and 3 do not use `cache=True` and are unaffected; the same cache-clear runs for them too for uniformity but is a no-op.
+
 **Workload per site:**
 
 | Site | Method | Workload variants |
@@ -194,7 +196,7 @@ Two dimensions per site:
 
 **Fixtures:** The script uses existing helpers from `test_sales_invoice.py` and `erpnext/tests/utils.py` (e.g., `create_sales_invoice`, `BootStrapTestData` artifacts) to construct fixtures. If a site's fixture is non-trivial to build via existing helpers (notably site 1's fixed assets and site 3's timesheets), the script's fixture builders are themselves small (10-30 lines each) and documented inline.
 
-**Before/after capture:** The same script is run twice — once at the pre-refactor commit (`b79f10e911`, the commit that lands this spec) and once at the post-refactor HEAD (after all 3 refactor commits land). Both result sets are recorded in the same report alongside the methodology and the script source. The implementation plan specifies the exact git checkout/restore dance.
+**Before/after capture:** The same script is run twice — once at the pre-refactor commit (the commit that lands this spec — i.e., the immediate parent of the first refactor commit) and once at the post-refactor HEAD (after all 3 refactor commits land). Both result sets are recorded in the same report alongside the methodology and the script source. The implementation plan specifies the exact git checkout/restore dance.
 
 **Report contents:**
 1. Methodology (this section, distilled).
