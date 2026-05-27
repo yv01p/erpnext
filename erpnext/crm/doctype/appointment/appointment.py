@@ -116,7 +116,7 @@ class Appointment(Document):
 		self.create_lead_and_link()
 		# Remove unverified status
 		self.status = "Open"
-		# Create calender event
+		# Create calendar event
 		self.auto_assign()
 		self.create_calendar_event()
 		self.save(ignore_permissions=True)
@@ -213,8 +213,7 @@ class Appointment(Document):
 				"event_participants", dict(reference_doctype="Employee", reference_docname=employee.name)
 			)
 		appointment_event.insert(ignore_permissions=True)
-		self.calendar_event = appointment_event.name
-		self.save(ignore_permissions=True)
+		self.db_set("calendar_event", appointment_event.name)
 
 	def _get_verify_url(self):
 		verify_route = "/book_appointment/verify"

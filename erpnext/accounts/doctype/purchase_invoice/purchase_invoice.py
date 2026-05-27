@@ -660,20 +660,36 @@ class PurchaseInvoice(BuyingController):
 			throw(_("Please enter Write Off Account"))
 
 	def check_prev_docstatus(self):
+		purchase_orders = {d.purchase_order for d in self.get("items") if d.purchase_order}
+		purchase_receipts = {d.purchase_receipt for d in self.get("items") if d.purchase_receipt}
+		submitted_purchase_orders = (
+			set(
+				frappe.get_all(
+					"Purchase Order",
+					filters={"name": ("in", list(purchase_orders)), "docstatus": 1},
+					pluck="name",
+				)
+			)
+			if purchase_orders
+			else set()
+		)
+		submitted_purchase_receipts = (
+			set(
+				frappe.get_all(
+					"Purchase Receipt",
+					filters={"name": ("in", list(purchase_receipts)), "docstatus": 1},
+					pluck="name",
+				)
+			)
+			if purchase_receipts
+			else set()
+		)
+
 		for d in self.get("items"):
-			if d.purchase_order:
-				submitted = frappe.db.sql(
-					"select name from `tabPurchase Order` where docstatus = 1 and name = %s", d.purchase_order
-				)
-				if not submitted:
-					frappe.throw(_("Purchase Order {0} is not submitted").format(d.purchase_order))
-			if d.purchase_receipt:
-				submitted = frappe.db.sql(
-					"select name from `tabPurchase Receipt` where docstatus = 1 and name = %s",
-					d.purchase_receipt,
-				)
-				if not submitted:
-					frappe.throw(_("Purchase Receipt {0} is not submitted").format(d.purchase_receipt))
+			if d.purchase_order and d.purchase_order not in submitted_purchase_orders:
+				frappe.throw(_("Purchase Order {0} is not submitted").format(d.purchase_order))
+			if d.purchase_receipt and d.purchase_receipt not in submitted_purchase_receipts:
+				frappe.throw(_("Purchase Receipt {0} is not submitted").format(d.purchase_receipt))
 
 	def update_status_updater_args(self):
 		if cint(self.update_stock):
@@ -798,8 +814,8 @@ class PurchaseInvoice(BuyingController):
 			"is_opening",
 		]
 		child_tables = {"items": ("expense_account",), "taxes": ("account_head",)}
-		self.needs_repost = self.check_if_fields_updated(fields_to_check, child_tables)
-		if self.needs_repost:
+		needs_repost = self.check_if_fields_updated(fields_to_check, child_tables)
+		if needs_repost:
 			self.validate_for_repost()
 			self.repost_accounting_entries()
 
