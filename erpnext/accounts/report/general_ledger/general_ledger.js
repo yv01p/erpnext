@@ -1,5 +1,20 @@
 // Copyright (c) 2018, Frappe Technologies Pvt. Ltd. and Contributors
 // License: GNU General Public License v3. See license.txt
+function set_fiscal_year_dates(report) {
+	frappe.call({
+		method: "erpnext.accounts.utils.get_fiscal_year",
+		args: {
+			date: frappe.datetime.get_today(),
+			company: report.get_filter_value("company")
+		},
+		callback: function(r) {
+			if (r.message) {
+				report.set_filter_value("from_date", r.message[1]);
+				report.set_filter_value("to_date", frappe.datetime.get_today());
+			}
+		}
+	});
+}
 
 frappe.query_reports["General Ledger"] = {
 	filters: [
@@ -10,6 +25,8 @@ frappe.query_reports["General Ledger"] = {
 			options: "Company",
 			default: frappe.defaults.get_user_default("Company"),
 			reqd: 1,
+			on_change: function(report) {
+	        set_fiscal_year_dates(report);},
 		},
 		{
 			fieldname: "finance_book",
@@ -21,7 +38,7 @@ frappe.query_reports["General Ledger"] = {
 			fieldname: "from_date",
 			label: __("From Date"),
 			fieldtype: "Date",
-			default: frappe.datetime.add_months(frappe.datetime.get_today(), -1),
+			default: frappe.datetime.get_today(),
 			reqd: 1,
 			width: "60px",
 		},
@@ -235,3 +252,7 @@ frappe.query_reports["General Ledger"] = {
 };
 
 erpnext.utils.add_dimensions("General Ledger", 15);
+
+frappe.query_reports["General Ledger"].onload = function(report) {
+	set_fiscal_year_dates(report);
+};
