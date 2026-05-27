@@ -315,6 +315,7 @@ class SalesInvoice(SellingController):
 		self.validate_uom_is_integer("uom", "qty")
 		self.check_sales_order_on_hold_or_close("sales_order")
 		self.validate_debit_to_acc()
+		self.validate_debit_note_with_update_stock()
 		self.clear_unallocated_advances("Sales Invoice Advance", "advances")
 		self.validate_fixed_asset()
 		self.set_income_account_for_fixed_assets()
@@ -1284,6 +1285,16 @@ class SalesInvoice(SellingController):
 	def validate_account_for_change_amount(self):
 		if flt(self.change_amount) and not self.account_for_change_amount:
 			msgprint(_("Please enter Account for Change Amount"), raise_exception=1)
+
+	def validate_debit_note_with_update_stock(self):
+		if self.is_debit_note and cint(self.update_stock):
+			frappe.throw(
+				_(
+					"You cannot update stock for a Debit Note. A Debit Note is a financial "
+					"document that should not affect inventory. Please disable 'Update Stock'."
+				),
+				title=_("Invalid Configuration"),
+			)
 
 	def validate_dropship_item(self):
 		"""If items are drop shipped, stock cannot be updated."""

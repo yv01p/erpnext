@@ -4862,6 +4862,12 @@ class TestSalesInvoice(ERPNextTestSuite):
 
 		frappe.db.set_value("Company", "_Test Company 1", "cost_center", cost_center)
 
+	def test_debit_note_with_update_stock_validation(self):
+		si = create_sales_invoice(do_not_save=True)
+		si.is_debit_note = 1
+		si.update_stock = 1
+		self.assertRaises(frappe.ValidationError, si.save)
+
 
 def make_item_for_si(item_code, properties=None):
 	from erpnext.stock.doctype.item.test_item import make_item

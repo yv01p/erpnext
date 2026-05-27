@@ -567,6 +567,7 @@ erpnext.accounts.SalesInvoiceController = class SalesInvoiceController extends (
 	set_dynamic_labels() {
 		super.set_dynamic_labels();
 		this.frm.events.hide_fields(this.frm);
+		this.frm.set_df_property("update_stock", "hidden", cint(this.frm.doc.is_debit_note));
 	}
 
 	items_on_form_rendered() {
@@ -1153,6 +1154,14 @@ frappe.ui.form.on("Sales Invoice", {
 			"total_billing_hours",
 			frm.doc.timesheets.reduce((a, b) => a + (b["billing_hours"] || 0.0), 0.0)
 		);
+	},
+
+	is_debit_note: function (frm) {
+		if (frm.doc.is_debit_note) {
+			frm.set_value("update_stock", 0);
+		}
+		frm.set_df_property("update_stock", "hidden", cint(frm.doc.is_debit_note));
+		frm.refresh_field("update_stock");
 	},
 
 	refresh: function (frm) {
