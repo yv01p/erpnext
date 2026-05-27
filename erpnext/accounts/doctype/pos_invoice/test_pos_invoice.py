@@ -52,15 +52,11 @@ class TestPOSInvoice(POSInvoiceTestMixin):
 		w.insert()
 
 		w2 = frappe.get_doc(w.doctype, w.name)
-
-		import time
-
-		time.sleep(1)
 		w.save()
-
-		import time
-
-		time.sleep(1)
+		# After w.save() the DB holds a newer 'modified' value than w2 cached.
+		# Backdate w2.modified to guarantee the mismatch fires independent of
+		# sub-second DB timestamp precision (avoids a 2-second sleep).
+		w2.modified = frappe.utils.add_to_date(w2.modified, seconds=-2)
 		self.assertRaises(frappe.TimestampMismatchError, w2.save)
 
 	def test_change_naming_series(self):
