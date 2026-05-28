@@ -3156,6 +3156,11 @@ class TestSalesInvoice(ERPNextTestSuite):
 		"""
 		Sales Invoice with multiple fixed-asset rows should pass validate_fixed_asset
 		without raising. Guards against regressions in the batched Asset.status lookup.
+
+		Also verifies the batched name->status dict maps each row to the correct
+		asset's status: flipping row #2's asset to "Sold" must raise a ValidationError
+		whose message references row #2 and that asset's name. Asset rows are
+		rolled back per-test by ERPNextTestSuite.tearDown (frappe.db.rollback).
 		"""
 		asset_a = create_asset(item_code="Macbook Pro", asset_name="Macbook Pro Row A")
 		asset_b = create_asset(item_code="Macbook Pro", asset_name="Macbook Pro Row B")
@@ -3184,8 +3189,21 @@ class TestSalesInvoice(ERPNextTestSuite):
 		for item in si.items:
 			item.is_fixed_asset = 1
 
-		# Should not raise: both assets are in non-terminal status.
+		# Happy path: both assets are in non-terminal status; must not raise.
 		si.validate_fixed_asset()
+
+		# Flip only row #2's asset (asset_b) to "Sold" in the DB. This proves the
+		# batched lookup correctly maps each row's asset name to its own status:
+		# if the dict were keyed wrong, the error would cite row #1 / asset_a.
+		frappe.db.set_value("Asset", asset_b.name, "status", "Sold", update_modified=False)
+
+		with self.assertRaises(frappe.ValidationError) as err:
+			si.validate_fixed_asset()
+
+		msg = str(err.exception)
+		self.assertIn("Row #2", msg)
+		self.assertIn(asset_b.name, msg)
+		self.assertNotIn(asset_a.name, msg)
 
 	def test_sales_invoice_against_supplier(self):
 		from erpnext.accounts.doctype.opening_invoice_creation_tool.test_opening_invoice_creation_tool import (
