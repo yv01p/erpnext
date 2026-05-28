@@ -3264,6 +3264,67 @@ class TestSalesInvoice(ERPNextTestSuite):
 		self.assertNotIn(so_a.name, msg)
 		self.assertNotIn(so_b.name, msg)
 
+	def test_validate_time_sheets_are_submitted_multiple_rows(self):
+		"""
+		Sales Invoice with multiple timesheet rows referencing distinct submitted
+		Timesheets must pass validate_time_sheets_are_submitted without raising.
+		Guards against regressions in the batched Timesheet Detail / Timesheet lookups.
+
+		Also verifies the batched name->value dicts map each row to its own
+		Timesheet Detail / Timesheet: flipping row #2's Timesheet Detail to mark
+		it as already-invoiced must raise a ValidationError whose message
+		references that row's Timesheet (and not the passing rows'). All DB
+		rows are rolled back per-test by ERPNextTestSuite.tearDown (frappe.db.rollback).
+		"""
+		from erpnext.projects.doctype.timesheet.test_timesheet import make_timesheet
+		from erpnext.setup.doctype.employee.test_employee import make_employee
+
+		emp = make_employee("test_employee_6@salary.com", company="_Test Company")
+
+		ts_a = make_timesheet(emp, simulate=True, is_billable=1)
+		ts_b = make_timesheet(emp, simulate=True, is_billable=1)
+		detail_a = ts_a.time_logs[0].name
+		detail_b = ts_b.time_logs[0].name
+
+		si = create_sales_invoice(qty=1, rate=100, do_not_save=True)
+		si.append(
+			"timesheets",
+			{
+				"time_sheet": ts_a.name,
+				"timesheet_detail": detail_a,
+				"billing_hours": ts_a.time_logs[0].hours,
+				"billing_amount": ts_a.time_logs[0].billing_amount,
+			},
+		)
+		si.append(
+			"timesheets",
+			{
+				"time_sheet": ts_b.name,
+				"timesheet_detail": detail_b,
+				"billing_hours": ts_b.time_logs[0].hours,
+				"billing_amount": ts_b.time_logs[0].billing_amount,
+			},
+		)
+
+		# Happy path: both timesheets are submitted and details not yet invoiced; must not raise.
+		si.validate_time_sheets_are_submitted()
+
+		# Mark only row #2's Timesheet Detail as already invoiced. This proves the
+		# batched lookup correctly maps each row's timesheet_detail to its own
+		# sales_invoice value: if the dict were keyed wrong, the error would cite
+		# row #1 / ts_a instead.
+		frappe.db.set_value(
+			"Timesheet Detail", detail_b, "sales_invoice", "SINV-FAKE-001", update_modified=False
+		)
+
+		with self.assertRaises(frappe.ValidationError) as err:
+			si.validate_time_sheets_are_submitted()
+
+		msg = str(err.exception)
+		self.assertIn("Row 2", msg)
+		self.assertIn(ts_b.name, msg)
+		self.assertNotIn(ts_a.name, msg)
+
 	def test_sales_invoice_against_supplier(self):
 		from erpnext.accounts.doctype.opening_invoice_creation_tool.test_opening_invoice_creation_tool import (
 			make_customer,

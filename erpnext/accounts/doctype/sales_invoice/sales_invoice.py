@@ -888,12 +888,35 @@ class SalesInvoice(SellingController):
 	def validate_time_sheets_are_submitted(self):
 		# Note: This validation is skipped for return invoices
 		# to allow returns to reference already-billed timesheet details
-		for data in self.timesheets:
-			# Handle invoice duplication
+		timesheets = self.timesheets
+		detail_names = {data.timesheet_detail for data in timesheets if data.time_sheet and data.timesheet_detail}
+		sheet_names = {data.time_sheet for data in timesheets if data.time_sheet}
+
+		detail_invoice_map = {}
+		if detail_names:
+			detail_invoice_map = {
+				r["name"]: r["sales_invoice"]
+				for r in frappe.db.get_all(
+					"Timesheet Detail",
+					filters={"name": ("in", list(detail_names))},
+					fields=["name", "sales_invoice"],
+				)
+			}
+
+		sheet_status_map = {}
+		if sheet_names:
+			sheet_status_map = {
+				r["name"]: r["status"]
+				for r in frappe.db.get_all(
+					"Timesheet",
+					filters={"name": ("in", list(sheet_names))},
+					fields=["name", "status"],
+				)
+			}
+
+		for data in timesheets:
 			if data.time_sheet and data.timesheet_detail:
-				if sales_invoice := frappe.db.get_value(
-					"Timesheet Detail", data.timesheet_detail, "sales_invoice"
-				):
+				if sales_invoice := detail_invoice_map.get(data.timesheet_detail):
 					frappe.throw(
 						_("Row {0}: Sales Invoice {1} is already created for {2}").format(
 							data.idx, frappe.bold(sales_invoice), frappe.bold(data.time_sheet)
@@ -901,7 +924,7 @@ class SalesInvoice(SellingController):
 					)
 
 			if data.time_sheet:
-				status = frappe.db.get_value("Timesheet", data.time_sheet, "status")
+				status = sheet_status_map.get(data.time_sheet)
 				if status not in ["Submitted", "Payslip", "Partially Billed"]:
 					frappe.throw(
 						_("Timesheet {0} cannot be invoiced in its current state").format(data.time_sheet)
