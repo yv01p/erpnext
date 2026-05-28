@@ -35,6 +35,8 @@ def get_pending_subcontracted_quantity(doctype, name):
 	return {item.name: item.stock_qty - item.subcontracted_qty for item in query.run(as_dict=True)}
 
 
+# Note: to verify whitelist registration, use `fn in frappe.whitelisted` (the set).
+# frappe.is_whitelisted() returns None on success and raises on failure — counterintuitive.
 @frappe.whitelist()
 def make_rm_stock_entry(
 	subcontract_order, rm_items=None, order_doctype="Subcontracting Order", target_doc=None

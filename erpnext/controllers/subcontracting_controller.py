@@ -88,9 +88,6 @@ class SubcontractingController(StockController):
 	def get_available_materials(self):
 		data_assembly.get_available_materials(self)
 
-	def _get_materials_from_bom(self, item_code, bom_no, exploded_item=0):
-		return self.supplied_items_helper._get_materials_from_bom(item_code, bom_no, exploded_item)
-
 	def set_batch_for_supplied_items(self):
 		self.supplied_items_helper.set_batch_for_supplied_items()
 
@@ -105,6 +102,9 @@ class SubcontractingController(StockController):
 
 	def set_rate_for_supplied_items(self, rm_obj, item_row):
 		self.supplied_items_helper.set_rate_for_supplied_items(rm_obj, item_row)
+
+	def _get_materials_from_bom(self, item_code, bom_no, exploded_item=0):
+		return self.supplied_items_helper._get_materials_from_bom(item_code, bom_no, exploded_item)
 
 	def set_materials_for_subcontracted_items(self, raw_material_table):
 		if self.doctype == "Purchase Invoice" and not self.update_stock:
