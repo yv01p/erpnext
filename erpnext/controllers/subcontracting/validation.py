@@ -5,6 +5,8 @@ import frappe
 from frappe import _
 from frappe.utils import flt, get_link_to_form
 
+from .api import get_pending_subcontracted_quantity
+
 
 def validate_rejected_warehouse(doc):
 	for item in doc.get("items"):
@@ -85,11 +87,6 @@ def validate_items(doc):
 							item.idx, item.item_name, order_item_doctype
 						)
 					)
-
-				# IMPORTANT: at T1 this import points at the still-module-level function in
-				# subcontracting_controller.py. T4 retargets it to `from .api import ...`.
-				# Lazy import to avoid circular dependency.
-				from erpnext.controllers.subcontracting_controller import get_pending_subcontracted_quantity
 
 				pending_qty = flt(
 					flt(
