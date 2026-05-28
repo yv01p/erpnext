@@ -333,6 +333,11 @@ def query_counter():
 
 def clear_cache():
     frappe.local.cache = {}
+    # frappe.db.get_value(..., cache=True) populates frappe.db.value_cache (the DB-instance
+    # cache), NOT frappe.local.cache. Without clearing both, Site 2's warm-up populates the
+    # value_cache and all 5 measured iterations are hits → 0 queries → BEFORE/AFTER inverted.
+    if hasattr(frappe.db, "value_cache"):
+        frappe.db.value_cache.clear()
 
 
 def measure_method(si, method_name, runs=5, warmup=1):

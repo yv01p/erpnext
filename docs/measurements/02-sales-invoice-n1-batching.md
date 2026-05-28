@@ -136,7 +136,7 @@ savings reported here by 3-10×.
 
 The full measurement script lives at
 [`scripts/measure_n1_refactor.py`](scripts/measure_n1_refactor.py). It is
-~280 lines, split into:
+~450 lines, split into:
 
 - **Cache + counter primitives** (`query_counter`, `clear_cache`) — clears
   both `frappe.local.cache` and `frappe.db.value_cache`.
@@ -179,8 +179,9 @@ The output JSON has shape:
 
 - Spec: [`docs/specs/2026-05-27-sales-invoice-n1-batching-design.md`](../specs/2026-05-27-sales-invoice-n1-batching-design.md)
 - Implementation plan: [`docs/plans/2026-05-27-sales-invoice-n1-batching-implementation-plan.md`](../plans/2026-05-27-sales-invoice-n1-batching-implementation-plan.md)
-- Lesson: [`docs/lessons/02-intermediate-sales-invoice-n1s.md`](../lessons/02-intermediate-sales-invoice-n1s.md) *(written in Task 5)*
+- Lesson: [`docs/lessons/02-intermediate-sales-invoice-n1s.md`](../lessons/02-intermediate-sales-invoice-n1s.md) (commits `190745e017` + clarity polish `e9652c2d98`)
 - Refactor commits:
   - Site 1 (`validate_fixed_asset`): `6c6a13ba5b` + hardened test `3144b8153d`
   - Site 2 (`check_prev_docstatus`): `6f103dadb7`
   - Site 3 (`validate_time_sheets_are_submitted`): `f4525190d3`
+- Measurement commit (this report + script): `b48081cd7b`
