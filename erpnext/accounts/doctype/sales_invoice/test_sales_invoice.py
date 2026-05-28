@@ -3205,6 +3205,65 @@ class TestSalesInvoice(ERPNextTestSuite):
 		self.assertIn(asset_b.name, msg)
 		self.assertNotIn(asset_a.name, msg)
 
+	def test_check_prev_docstatus_multiple_rows(self):
+		"""
+		Sales Invoice with multiple rows referencing distinct submitted Sales
+		Orders and a Delivery Note must pass check_prev_docstatus without raising.
+		Guards against regressions in the batched docstatus lookup.
+
+		Also verifies the batched name->docstatus dict maps each row to the
+		correct upstream doc's docstatus: pointing one row at a *draft* Sales
+		Order must raise a ValidationError whose message references that SO's
+		name (and not the submitted ones). All DB rows are rolled back per-test
+		by ERPNextTestSuite.tearDown (frappe.db.rollback).
+		"""
+		from erpnext.selling.doctype.sales_order.test_sales_order import make_sales_order
+		from erpnext.stock.doctype.delivery_note.test_delivery_note import create_delivery_note
+
+		so_a = make_sales_order()
+		so_b = make_sales_order()
+		dn_a = create_delivery_note()
+
+		si = create_sales_invoice(qty=1, rate=100, do_not_save=True)
+		si.items[0].sales_order = so_a.name
+		si.append(
+			"items",
+			{
+				"item_code": "_Test Item",
+				"item_name": "_Test Item",
+				"description": "_Test Item",
+				"warehouse": "_Test Warehouse - _TC",
+				"qty": 1,
+				"uom": "Nos",
+				"stock_uom": "Nos",
+				"rate": 100,
+				"income_account": "Sales - _TC",
+				"expense_account": "Cost of Goods Sold - _TC",
+				"cost_center": "_Test Cost Center - _TC",
+				"conversion_factor": 1,
+				"sales_order": so_b.name,
+				"delivery_note": dn_a.name,
+			},
+		)
+
+		# Happy path: all referenced docs are submitted (docstatus=1); must not raise.
+		si.check_prev_docstatus()
+
+		# Point row #2 at a *draft* Sales Order. The batched lookup must report the
+		# draft SO's name in the error (proving the dict is correctly keyed and the
+		# submitted SOs on row #1 don't mask the failure).
+		so_draft = make_sales_order(do_not_submit=True)
+		si.items[1].sales_order = so_draft.name
+
+		with self.assertRaises(frappe.ValidationError) as err:
+			si.check_prev_docstatus()
+
+		msg = str(err.exception)
+		self.assertIn(so_draft.name, msg)
+		self.assertIn("not submitted", msg)
+		self.assertNotIn(so_a.name, msg)
+		self.assertNotIn(so_b.name, msg)
+
 	def test_sales_invoice_against_supplier(self):
 		from erpnext.accounts.doctype.opening_invoice_creation_tool.test_opening_invoice_creation_tool import (
 			make_customer,

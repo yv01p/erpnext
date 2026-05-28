@@ -1402,17 +1402,37 @@ class SalesInvoice(SellingController):
 			item.set_income_account_for_fixed_asset(self.company)
 
 	def check_prev_docstatus(self):
-		for d in self.get("items"):
-			if (
-				d.sales_order
-				and frappe.db.get_value("Sales Order", d.sales_order, "docstatus", cache=True) != 1
-			):
+		items = self.get("items")
+		so_names = {d.sales_order for d in items if d.sales_order}
+		dn_names = {d.delivery_note for d in items if d.delivery_note}
+
+		so_docstatus_map = {}
+		if so_names:
+			so_docstatus_map = {
+				r["name"]: r["docstatus"]
+				for r in frappe.db.get_all(
+					"Sales Order",
+					filters={"name": ("in", list(so_names))},
+					fields=["name", "docstatus"],
+				)
+			}
+
+		dn_docstatus_map = {}
+		if dn_names:
+			dn_docstatus_map = {
+				r["name"]: r["docstatus"]
+				for r in frappe.db.get_all(
+					"Delivery Note",
+					filters={"name": ("in", list(dn_names))},
+					fields=["name", "docstatus"],
+				)
+			}
+
+		for d in items:
+			if d.sales_order and so_docstatus_map.get(d.sales_order) != 1:
 				frappe.throw(_("Sales Order {0} is not submitted").format(d.sales_order))
 
-			if (
-				d.delivery_note
-				and frappe.db.get_value("Delivery Note", d.delivery_note, "docstatus", cache=True) != 1
-			):
+			if d.delivery_note and dn_docstatus_map.get(d.delivery_note) != 1:
 				throw(_("Delivery Note {0} is not submitted").format(d.delivery_note))
 
 	def split_asset_based_on_sale_qty(self):
