@@ -434,9 +434,12 @@ git commit -m "refactor(subcontracting): extract validation cluster to subcontra
   - `get_available_materials(doc)` (public-named — no rename)
 
 Mechanical substitutions in each moved body:
-1. `self.X` → `doc.X` (attribute / method access)
-2. `self.__foo()` → `data_assembly._foo(doc)` IF `__foo` is in the moving list above, OR `doc._foo()` IF the helper is being moved to data_assembly itself and called from within data_assembly (cross-function calls within the module). Inside `data_assembly.py`, all helper-to-helper calls use the module-private `_foo(doc, ...)` form, not `data_assembly._foo(...)`.
-3. `self.subcontract_data.X` → `doc.subcontract_data.X` (these stay as attribute access; no method-call rewrite needed)
+1. `self.X` → `doc.X` (general attribute / method access — for non-double-underscore identifiers).
+2. **State attributes — `self.__attr` → `doc._attr`** (rename to single underscore so the name is literal in both module scope and class scope). Applies to: `__changed_name`, `__reference_name`, `__transferred_items`. Both writes (`doc.__changed_name = []` → `doc._changed_name = []`) and reads inside `data_assembly.py` use the renamed `_attr` form. The rename must match supplied_items.py's reads (see T3 Step 1 rule 2). **Without this rule:** `data_assembly.py`'s module-context write sets the literal attribute name `__changed_name`, but `SuppliedItemsHelper`'s class-context read compile-mangles to `_SuppliedItemsHelper__changed_name` → AttributeError at T3's behavior gate.
+3. `self.__foo()` (method call, where `__foo` is in the moving list above):
+   - If the callsite is **outside** `data_assembly.py` (e.g., in the controller or in another helper module): rewrite to `data_assembly._foo(doc)`.
+   - If the callsite is **inside** `data_assembly.py` (helper-to-helper within the same module): rewrite to `_foo(doc, ...)` — direct module-local function call. Do NOT use `data_assembly._foo(...)` (self-import) or `doc._foo()` (would AttributeError — the controller no longer has the method).
+4. `self.subcontract_data.X` → `doc.subcontract_data.X` (these stay as attribute access; no method-call rewrite needed)
 
 **Preserve the 2 in-method local imports** at L458 and L467 (`from erpnext.deprecation_dumpster import deprecation_warning`) verbatim inside `_update_consumed_materials`.
 
@@ -652,10 +655,11 @@ class SuppliedItemsHelper:
 
 Mechanical substitutions in each moved body:
 1. `self.__foo(...)` (when `__foo` is also in this helper class) → `self._foo(...)` (the mangling rename within the helper).
-2. `self.X` where `X` is an attribute on the controller (`self.supplied_items`, `self.subcontract_data`, `self.doctype`, `self.is_return`, `self.posting_date`, etc.) → `self.controller.X`.
-3. `self.X()` where `X()` is a method that ALSO moved to this helper → stays `self.X()`.
-4. `self.X()` where `X()` is a method on data_assembly.py → `data_assembly._X(self.controller)` (need `from . import data_assembly` at top of file).
-5. `self.X()` where `X()` STAYS on the controller (e.g., `self.calculate_items_qty_and_amount()` called from `set_valuation_rate_for_rm`) → `self.controller.X()`.
+2. **State attributes set by data_assembly — `self.__attr` (referring to a controller attribute) → `self.controller._attr`** (using the renamed single-underscore form established in T2 Step 1 rule 2). Applies to: `__changed_name`, `__reference_name`, `__transferred_items`. **Without this rule:** `self.controller.__changed_name` inside `SuppliedItemsHelper` compile-mangles to `self.controller._SuppliedItemsHelper__changed_name`, which doesn't exist on the controller instance (data_assembly's write used the literal name `__changed_name` and — per T2 Step 1 rule 2 — must be renamed to `_changed_name`) → AttributeError at T3's behavior gate.
+3. `self.X` where `X` is an attribute on the controller (`self.supplied_items`, `self.subcontract_data`, `self.doctype`, `self.is_return`, `self.posting_date`, etc.) → `self.controller.X`.
+4. `self.X()` where `X()` is a method that ALSO moved to this helper → stays `self.X()`.
+5. `self.X()` where `X()` is a method on data_assembly.py → `data_assembly._X(self.controller)` (need `from . import data_assembly` at top of file).
+6. `self.X()` where `X()` STAYS on the controller (e.g., `self.calculate_items_qty_and_amount()` called from `set_valuation_rate_for_rm`) → `self.controller.X()`.
 
 The 25 methods listed above are all the methods moving to this cluster. Use the spec §2 layout as the authoritative list. **Delete each moved method from the controller** as it's added to the helper.
 
