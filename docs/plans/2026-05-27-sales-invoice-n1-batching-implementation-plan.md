@@ -306,6 +306,7 @@ after 1 warm-up iteration. frappe.local.cache is cleared between every iteration
 import argparse
 import json
 import statistics
+import subprocess
 import sys
 import time
 from contextlib import contextmanager
@@ -402,7 +403,10 @@ def run_all_sites(site, output_path):
             results.append({"site": 3, "method": "validate_time_sheets_are_submitted", "n": n,
                             **measure_method(si3, "validate_time_sheets_are_submitted")})
 
-        commit = frappe.utils.execute_in_shell("git rev-parse HEAD", check_exit_code=True)[1].strip()
+        erpnext_root = Path(__file__).resolve().parents[3]
+        commit = subprocess.check_output(
+            ["git", "-C", str(erpnext_root), "rev-parse", "HEAD"], text=True
+        ).strip()
         payload = {"commit": commit, "results": results}
         Path(output_path).write_text(json.dumps(payload, indent=2))
         print(f"Wrote {output_path} ({len(results)} rows)")
@@ -424,7 +428,7 @@ Note: the four `build_site*_invoice` and `ensure_fixtures` helpers are sketched 
 
 ```bash
 # Stash the new script + report draft (anything uncommitted)
-git stash push -m "n1-measurement-pending" -- docs/measurements/
+git stash push -u -m "n1-measurement-pending" -- docs/measurements/
 
 # Identify the pre-refactor commit. Task 1's commit is the first refactor commit;
 # its parent is the pre-refactor state (= db7f4a669f at plan-write time, but resolve fresh).
@@ -440,7 +444,7 @@ env/bin/python ~/erpnext/docs/measurements/scripts/measure_n1_refactor.py \
     --site test_site --output /tmp/measure_before.json
 cd ~/erpnext
 
-git stash push -m "n1-measurement-pending" -- docs/measurements/
+git stash push -u -m "n1-measurement-pending" -- docs/measurements/
 git checkout refactoring                              # return to HEAD
 git stash pop                                         # script back in tree
 ```
