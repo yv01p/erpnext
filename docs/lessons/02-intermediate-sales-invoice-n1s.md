@@ -2,6 +2,8 @@
 
 This is the second of a three-part refactoring series on the ERPNext codebase. The warm-up (Lesson 1) extracted a long braided method into single-concern helpers and batched two N+1s — without measurement, the theoretical bound was stated and the lesson ended. This intermediate lesson scales the N+1 surface from 2 to 5 (across 3 methods), drops method extraction entirely (the loop bodies are small enough that 2-pass inline is the right shape), and **adds empirical before/after measurement** to replace the warm-up's "theoretical, not measured" caveat.
 
+A note on the pivot: Lesson 1's "Next steps" anticipated a single complex method with hooks and background jobs as the next exercise. That target is deferred to Lesson 3. Instead, this lesson widens the surface — multiple N+1 sites across multiple small methods — and adds empirical measurement. The measurement discipline, in particular, turned out to be the more valuable next step after the warm-up's theoretical-only bound.
+
 **Commits:**
 - Site 1 refactor: `6c6a13ba5b` — batch `Asset.status` lookup in `validate_fixed_asset`
 - Site 1 test hardening: `3144b8153d` — multi-row coverage for `validate_fixed_asset`
@@ -67,6 +69,7 @@ for d in self.get("items"):
     if d.is_fixed_asset:
         if d.asset:
             if not self.is_return:
+                # asset_status is only read in the elif branches below — never on the update_stock branch
                 asset_status = frappe.db.get_value("Asset", d.asset, "status")
                 if self.update_stock:
                     frappe.throw(...)
@@ -113,15 +116,34 @@ for d in self.get("items"):
         throw(_("Delivery Note {0} is not submitted").format(d.delivery_note))
 ```
 
-After (abridged — see commit `6f103dadb7` for the full diff):
+After:
 
 ```python
 items = self.get("items")
 so_names = {d.sales_order for d in items if d.sales_order}
 dn_names = {d.delivery_note for d in items if d.delivery_note}
 
-so_docstatus_map = {...frappe.db.get_all("Sales Order", filters={"name": ("in", list(so_names))}, ...)} if so_names else {}
-dn_docstatus_map = {...frappe.db.get_all("Delivery Note", filters={"name": ("in", list(dn_names))}, ...)} if dn_names else {}
+so_docstatus_map = {}
+if so_names:
+    so_docstatus_map = {
+        r["name"]: r["docstatus"]
+        for r in frappe.db.get_all(
+            "Sales Order",
+            filters={"name": ("in", list(so_names))},
+            fields=["name", "docstatus"],
+        )
+    }
+
+dn_docstatus_map = {}
+if dn_names:
+    dn_docstatus_map = {
+        r["name"]: r["docstatus"]
+        for r in frappe.db.get_all(
+            "Delivery Note",
+            filters={"name": ("in", list(dn_names))},
+            fields=["name", "docstatus"],
+        )
+    }
 
 for d in items:
     if d.sales_order and so_docstatus_map.get(d.sales_order) != 1:
@@ -149,15 +171,34 @@ for data in self.timesheets:
             frappe.throw(...)
 ```
 
-After (abridged — see commit `f4525190d3` for the full diff):
+After:
 
 ```python
 timesheets = self.timesheets
 detail_names = {data.timesheet_detail for data in timesheets if data.time_sheet and data.timesheet_detail}
 sheet_names = {data.time_sheet for data in timesheets if data.time_sheet}
 
-detail_invoice_map = {...frappe.db.get_all("Timesheet Detail", ...)} if detail_names else {}
-sheet_status_map = {...frappe.db.get_all("Timesheet", ...)} if sheet_names else {}
+detail_invoice_map = {}
+if detail_names:
+    detail_invoice_map = {
+        r["name"]: r["sales_invoice"]
+        for r in frappe.db.get_all(
+            "Timesheet Detail",
+            filters={"name": ("in", list(detail_names))},
+            fields=["name", "sales_invoice"],
+        )
+    }
+
+sheet_status_map = {}
+if sheet_names:
+    sheet_status_map = {
+        r["name"]: r["status"]
+        for r in frappe.db.get_all(
+            "Timesheet",
+            filters={"name": ("in", list(sheet_names))},
+            fields=["name", "status"],
+        )
+    }
 
 for data in timesheets:
     if data.time_sheet and data.timesheet_detail:
@@ -230,7 +271,7 @@ Mechanical pattern-matching ("for-loop with a Frappe DB call inside the body") c
 
 ### (b) `cache=True` interacts non-obviously with warm-up iterations in measurement protocols
 
-This is the most transferable insight from the exercise, and it bit during Task 4 (measurement) — not during the refactor itself.
+This is the most transferable insight from the exercise, and it bit while writing the measurement script (the fourth of the five-task implementation plan) — not during the refactor itself.
 
 The original plan was to clear `frappe.local.cache` between every measured iteration (warm-up included). This works for Sites 1 and 3, which use plain `frappe.db.get_value(doctype, name, field)` — no cache. Site 2's pre-refactor code uses `frappe.db.get_value(doctype, name, field, cache=True)`, which populates **`frappe.db.value_cache[doctype][name][field]`** — a separate cache on the DB instance, **not** `frappe.local.cache`.
 
@@ -255,6 +296,20 @@ Method-size delta:
 - Site 3: 21 lines → 44 lines (+23). Two pre-passes, two doctypes, walrus preserved.
 
 The growth is real but uniform — the pre-pass scaffolding is identical-shape boilerplate (set-build → conditional `get_all` → dict-comprehension), repeated 1-2 times per method. No helper was extracted because the duplication is intrinsic: different doctypes, different fields, different filters. A helper would either parameterize over all four (becoming a generic `_batch_field_by_name` that exists nowhere else in the codebase and obscures the intent) or wrap each call site in a single-use helper that adds a function-call indirection for no readability benefit. Neither passes the YAGNI bar.
+
+Sketch of the helper we considered and rejected:
+
+```python
+def _batch_field_by_name(doctype: str, names: set[str], field: str) -> dict:
+    if not names:
+        return {}
+    return {
+        r["name"]: r[field]
+        for r in frappe.db.get_all(doctype, filters={"name": ("in", list(names))}, fields=["name", field])
+    }
+```
+
+Every call site would then read `_batch_field_by_name("Sales Order", so_names, "docstatus")` — tighter mechanically, but each site loses its self-documenting "I'm fetching Sales Order docstatuses by name into a map" reading, and the reader has to jump to the helper to confirm semantics. With only 4-5 call sites across the file and 2-3 line bodies each, the cost of the indirection exceeds the cost of the duplication.
 
 **Transferable lesson:** when the loop body is single-concern and small, inline 2-pass is the minimal refactor. Helper extraction is for braided methods, not for repeated patterns. The fact that the same shape repeats 5 times across 3 methods is not duplication-to-eliminate; it's a recognizable idiom that experienced readers can pattern-match.
 
