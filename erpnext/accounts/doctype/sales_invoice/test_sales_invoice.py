@@ -3152,6 +3152,41 @@ class TestSalesInvoice(ERPNextTestSuite):
 			self.assertEqual(expected_values[i][2], schedule.accumulated_depreciation_amount)
 			self.assertTrue(schedule.journal_entry)
 
+	def test_validate_fixed_asset_multiple_rows(self):
+		"""
+		Sales Invoice with multiple fixed-asset rows should pass validate_fixed_asset
+		without raising. Guards against regressions in the batched Asset.status lookup.
+		"""
+		asset_a = create_asset(item_code="Macbook Pro", asset_name="Macbook Pro Row A")
+		asset_b = create_asset(item_code="Macbook Pro", asset_name="Macbook Pro Row B")
+
+		si = create_sales_invoice(
+			item_code="Macbook Pro", asset=asset_a.name, qty=1, rate=90000, do_not_save=True
+		)
+		si.append(
+			"items",
+			{
+				"item_code": "Macbook Pro",
+				"item_name": "Macbook Pro",
+				"description": "Macbook Pro",
+				"warehouse": "_Test Warehouse - _TC",
+				"qty": 1,
+				"uom": "Nos",
+				"stock_uom": "Nos",
+				"rate": 90000,
+				"income_account": "Sales - _TC",
+				"expense_account": "Cost of Goods Sold - _TC",
+				"asset": asset_b.name,
+				"cost_center": "_Test Cost Center - _TC",
+				"conversion_factor": 1,
+			},
+		)
+		for item in si.items:
+			item.is_fixed_asset = 1
+
+		# Should not raise: both assets are in non-terminal status.
+		si.validate_fixed_asset()
+
 	def test_sales_invoice_against_supplier(self):
 		from erpnext.accounts.doctype.opening_invoice_creation_tool.test_opening_invoice_creation_tool import (
 			make_customer,

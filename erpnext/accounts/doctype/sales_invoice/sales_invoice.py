@@ -405,11 +405,24 @@ class SalesInvoice(SellingController):
 		if self.doctype != "Sales Invoice":
 			return
 
+		asset_status_map = {}
+		if not self.is_return:
+			asset_names = {d.asset for d in self.get("items") if d.is_fixed_asset and d.asset}
+			if asset_names:
+				asset_status_map = {
+					r["name"]: r["status"]
+					for r in frappe.db.get_all(
+						"Asset",
+						filters={"name": ("in", list(asset_names))},
+						fields=["name", "status"],
+					)
+				}
+
 		for d in self.get("items"):
 			if d.is_fixed_asset:
 				if d.asset:
 					if not self.is_return:
-						asset_status = frappe.db.get_value("Asset", d.asset, "status")
+						asset_status = asset_status_map.get(d.asset)
 						if self.update_stock:
 							frappe.throw(_("'Update Stock' cannot be checked for fixed asset sale"))
 
